@@ -59,6 +59,11 @@ func (e *Event) normalizar() {
 	if e.Fuente == "" {
 		e.Fuente = FuentePorDefecto
 	}
+	if e.Modalidad == "" {
+		e.Modalidad = Presencial
+	} else if m, ok := ParsearModalidad(string(e.Modalidad)); ok {
+		e.Modalidad = m
+	}
 }
 
 // Validos separa los eventos que vienen de una fuente externa: los inválidos
@@ -111,6 +116,10 @@ func (e Event) Validar() error {
 	}
 	if !e.Fin.IsZero() && e.Fin.Before(e.Inicio) {
 		agregar("la fecha de fin es anterior al inicio")
+	}
+
+	if _, ok := ParsearModalidad(string(e.Modalidad)); !ok {
+		agregar("modalidad %q inválida (usá presencial, online o hibrido)", e.Modalidad)
 	}
 
 	if len(problemas) > 0 {

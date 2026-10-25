@@ -89,7 +89,7 @@ func TestFiltrosDeFecha(t *testing.T) {
 	api := nuevaAPI(t, Config{Token: tokenDePrueba})
 	cuerpo := `[
 		{"titulo": "Uno", "inicio": "2030-01-10T19:00:00-03:00", "url": "https://ejemplo.com/1"},
-		{"titulo": "Dos", "inicio": "2030-01-31T23:30:00-03:00", "url": "https://ejemplo.com/2"},
+		{"titulo": "Dos", "inicio": "2030-01-31T23:30:00-03:00", "fin": "2030-01-31T23:59:00-03:00", "url": "https://ejemplo.com/2", "modalidad": "online"},
 		{"titulo": "Tres", "inicio": "2030-02-01T00:00:00-03:00", "url": "https://ejemplo.com/3"}]`
 	esperarEstado(t, hacer(api, pedido{metodo: "POST", ruta: "/eventos", cuerpo: cuerpo, token: tokenDePrueba}), http.StatusCreated)
 
@@ -104,6 +104,9 @@ func TestFiltrosDeFecha(t *testing.T) {
 		{"desde=2030-01-11", []string{"Dos", "Tres"}},
 		{"desde=2030-01-01&hasta=2030-01-31", []string{"Uno", "Dos"}},
 		{"q=dos&mes=2030-01", []string{"Dos"}},
+		{"modalidad=online", []string{"Dos"}},
+		{"modalidad=virtual&mes=2030-01", []string{"Dos"}},
+		{"modalidad=presencial&desde=2030-01-01", []string{"Uno", "Tres"}},
 	}
 
 	for _, c := range casos {
@@ -192,6 +195,8 @@ func TestPedidosInvalidos(t *testing.T) {
 		{"evento inválido", pedido{metodo: "POST", ruta: "/eventos", cuerpo: `{"titulo": "x", "url": "ftp://a"}`}, http.StatusBadRequest},
 		{"JSON roto", pedido{metodo: "POST", ruta: "/eventos", cuerpo: `{"titulo": `}, http.StatusBadRequest},
 		{"campo desconocido", pedido{metodo: "POST", ruta: "/eventos", cuerpo: `{"titlo": "x"}`}, http.StatusBadRequest},
+		{"modalidad inválida", pedido{metodo: "GET", ruta: "/eventos?modalidad=remoto"}, http.StatusBadRequest},
+		{"modalidad inválida al cargar", pedido{metodo: "POST", ruta: "/eventos", cuerpo: `{"titulo": "x", "inicio": "2030-01-10T19:00:00-03:00", "url": "https://a.com", "modalidad": "remoto"}`}, http.StatusBadRequest},
 		{"zona ya no existe", pedido{metodo: "POST", ruta: "/eventos", cuerpo: `{"titulo": "x", "zona": "CABA"}`}, http.StatusBadRequest},
 		{"q muy largo", pedido{metodo: "GET", ruta: "/eventos?q=" + strings.Repeat("a", maxBusqueda+1)}, http.StatusBadRequest},
 		{"fecha mal escrita", pedido{metodo: "GET", ruta: "/eventos?fecha=05/11/2026"}, http.StatusBadRequest},

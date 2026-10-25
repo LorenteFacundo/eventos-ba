@@ -35,6 +35,9 @@ func TestParsearDevEvents(t *testing.T) {
 	if !e.Inicio.Equal(wantInicio) {
 		t.Errorf("Inicio = %v, want %v", e.Inicio, wantInicio)
 	}
+	if e.Modalidad != event.Presencial {
+		t.Errorf("Modalidad = %q", e.Modalidad)
+	}
 	if err := e.Validar(); err != nil {
 		t.Errorf("no pasa la validación: %v", err)
 	}

@@ -89,14 +89,15 @@ func (srv *servidor) info(w http.ResponseWriter, r *http.Request) {
 			"GET /eventos/{id}",
 		},
 		"filtros": map[string]string{
-			"q":      "palabras del título o el lugar",
-			"fecha":  "un día: AAAA-MM-DD",
-			"mes":    "un mes: AAAA-MM",
-			"desde":  "desde un día: AAAA-MM-DD",
-			"hasta":  "hasta un día inclusive: AAAA-MM-DD",
-			"dias":   "los próximos N días",
-			"fuente": "manual, ia, dev.events",
-			"limite": fmt.Sprintf("máximo de resultados (1 a %d)", limiteMaximo),
+			"q":         "palabras del título o el lugar",
+			"modalidad": "presencial, online o hibrido (los híbridos entran en los dos)",
+			"fecha":     "un día: AAAA-MM-DD",
+			"mes":       "un mes: AAAA-MM",
+			"desde":     "desde un día: AAAA-MM-DD",
+			"hasta":     "hasta un día inclusive: AAAA-MM-DD",
+			"dias":      "los próximos N días",
+			"fuente":    "manual, ia, dev.events",
+			"limite":    fmt.Sprintf("máximo de resultados (1 a %d)", limiteMaximo),
 		},
 	})
 }
@@ -120,6 +121,14 @@ func (srv *servidor) listarEventos(w http.ResponseWriter, r *http.Request) {
 func filtroDesdeQuery(r *http.Request) (store.Filtro, error) {
 	q := r.URL.Query()
 	filtro := store.Filtro{Fuente: q.Get("fuente"), Limite: limitePorDefecto}
+
+	if q.Has("modalidad") {
+		m, ok := event.ParsearModalidad(q.Get("modalidad"))
+		if !ok {
+			return filtro, errors.New("modalidad tiene que ser presencial, online o hibrido")
+		}
+		filtro.Modalidad = m
+	}
 
 	texto := strings.TrimSpace(q.Get("q"))
 	if utf8.RuneCountInString(texto) > maxBusqueda {

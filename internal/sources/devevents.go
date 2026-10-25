@@ -48,7 +48,7 @@ func parsearDevEvents(html []byte) []event.Event {
 		if d.Type != "EducationEvent" {
 			continue // también hay bloques BreadcrumbList, etc.
 		}
-		// La página mezcla eventos online de cualquier lado; solo sirven los presenciales.
+		// Los online de esa página son de cualquier parte del mundo, no de Buenos Aires.
 		if strings.Contains(d.AttendanceMode, "OnlineEventAttendanceMode") {
 			continue
 		}
@@ -64,6 +64,10 @@ func convertirDevEvent(d devEvent) event.Event {
 		Fin:    soloFecha(d.EndDate),
 		URL:    d.URL,
 		Fuente: "dev.events",
+	}
+	e.Modalidad = event.Presencial
+	if strings.Contains(d.AttendanceMode, "MixedEventAttendanceMode") {
+		e.Modalidad = event.Hibrido
 	}
 	if d.Location != nil {
 		e.Lugar = d.Location.Name

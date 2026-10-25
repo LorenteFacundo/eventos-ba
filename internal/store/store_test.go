@@ -23,11 +23,12 @@ func abrirParaTest(t *testing.T) *Store {
 
 func nuevoEvento(titulo string, inicio time.Time, fuente string) event.Event {
 	return event.Event{
-		Titulo: titulo,
-		Inicio: inicio,
-		Fin:    inicio.Add(2 * time.Hour),
-		URL:    "https://ejemplo.com/" + titulo,
-		Fuente: fuente,
+		Titulo:    titulo,
+		Inicio:    inicio,
+		Fin:       inicio.Add(2 * time.Hour),
+		URL:       "https://ejemplo.com/" + titulo,
+		Fuente:    fuente,
+		Modalidad: event.Presencial,
 	}
 }
 
@@ -156,6 +157,82 @@ func TestBuscarPorTexto(t *testing.T) {
 			}
 			if got := titulos(eventos); !slices.Equal(got, c.want) {
 				t.Errorf("got %v, want %v", got, c.want)
+			}
+		})
+	}
+}
+
+func TestBuscarPorModalidad(t *testing.T) {
+	s := abrirParaTest(t)
+	ctx := context.Background()
+	inicio := time.Date(2030, 1, 10, 19, 0, 0, 0, event.Argentina)
+
+	presencial := nuevoEvento("presencial", inicio, "ia")
+	online := nuevoEvento("online", inicio.Add(time.Hour), "ia")
+	online.Modalidad = event.Online
+	hibrido := nuevoEvento("hibrido", inicio.Add(2*time.Hour), "ia")
+	hibrido.Modalidad = event.Hibrido
+	if err := s.Guardar(ctx, []event.Event{presencial, online, hibrido}); err != nil {
+		t.Fatalf("Guardar: %v", err)
+	}
+
+	casos := []struct {
+		modalidad event.Modalidad
+		want      []string
+	}{
+		{"", []string{"presencial", "online", "hibrido"}},
+		{event.Presencial, []string{"presencial", "hibrido"}},
+		{event.Online, []string{"online", "hibrido"}},
+		{event.Hibrido, []string{"hibrido"}},
+	}
+
+	for _, c := range casos {
+		t.Run(string(c.modalidad), func(t *testing.T) {
+			eventos, err := s.Buscar(ctx, Filtro{Modalidad: c.modalidad})
+			if err != nil {
+				t.Fatalf("Buscar: %v", err)
+			}
+			if got := titulos(eventos); !slices.Equal(got, c.want) {
+				t.Errorf("got %v, want %v", got, c.want)
+			}
+			if len(eventos) > 0 && eventos[0].Modalidad == "" {
+				t.Error("la modalidad no se leyó de la base")
+			}
+		})
+	}
+}
+
+// Un evento sin fin o sin horario no tiene que desaparecer apenas empieza.
+func TestBuscarEventosSinFin(t *testing.T) {
+	s := abrirParaTest(t)
+	ctx := context.Background()
+
+	conHora := nuevoEvento("con hora", time.Date(2030, 1, 10, 19, 0, 0, 0, event.Argentina), "ia")
+	conHora.Fin = time.Time{}
+	soloDia := nuevoEvento("solo el día", time.Date(2030, 1, 10, 0, 0, 0, 0, event.Argentina), "dev.events")
+	soloDia.Fin = soloDia.Inicio
+	if err := s.Guardar(ctx, []event.Event{conHora, soloDia}); err != nil {
+		t.Fatalf("Guardar: %v", err)
+	}
+
+	casos := []struct {
+		ahora time.Time
+		want  []string
+	}{
+		{time.Date(2030, 1, 10, 12, 0, 0, 0, event.Argentina), []string{"solo el día", "con hora"}},
+		{time.Date(2030, 1, 10, 20, 0, 0, 0, event.Argentina), []string{"solo el día", "con hora"}},
+		{time.Date(2030, 1, 10, 23, 0, 0, 0, event.Argentina), []string{"solo el día"}},
+		{time.Date(2030, 1, 11, 0, 0, 0, 0, event.Argentina), nil},
+	}
+
+	for _, c := range casos {
+		t.Run(c.ahora.Format("15:04"), func(t *testing.T) {
+			eventos, err := s.Buscar(ctx, Filtro{Desde: c.ahora})
+			if err != nil {
+				t.Fatalf("Buscar: %v", err)
+			}
+			if got := titulos(eventos); !slices.Equal(got, c.want) {
+				t.Errorf("a las %s: got %v, want %v", c.ahora.Format("02/01 15:04"), got, c.want)
 			}
 		})
 	}

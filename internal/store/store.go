@@ -18,7 +18,8 @@ var ErrNoEncontrado = errors.New("evento no encontrado")
 
 // La url es UNIQUE: si un evento vuelve a cargarse con la misma url se actualiza.
 // Las fechas van como texto RFC3339 en UTC, así el orden alfabético coincide
-// con el cronológico y se pueden comparar directo en SQL.
+// con el cronológico y se pueden comparar directo en SQL. termina sale de
+// Event.Termina y es lo que se usa para saber si un evento ya pasó.
 const esquema = `
 CREATE TABLE IF NOT EXISTS eventos (
 	id          INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -27,14 +28,17 @@ CREATE TABLE IF NOT EXISTS eventos (
 	inicio      TEXT NOT NULL,
 	fin         TEXT,
 	lugar       TEXT NOT NULL DEFAULT '',
+	modalidad   TEXT NOT NULL DEFAULT 'presencial',
 	fuente      TEXT NOT NULL,
+	termina     TEXT NOT NULL,
 	actualizado TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS eventos_inicio ON eventos(inicio);
+CREATE INDEX IF NOT EXISTS eventos_termina ON eventos(termina);
 `
 
 // Tiene que coincidir con el orden de Scan en escanear.
-const columnas = `id, url, titulo, inicio, fin, lugar, fuente`
+const columnas = `id, url, titulo, inicio, fin, lugar, modalidad, fuente`
 
 type Store struct {
 	db *sql.DB
@@ -42,11 +46,12 @@ type Store struct {
 
 // Filtro para Buscar. Los campos en cero no filtran.
 type Filtro struct {
-	Desde  time.Time // eventos que terminan desde esta fecha
-	Hasta  time.Time // eventos que empiezan antes de esta fecha
-	Texto  string    // palabras que tienen que estar en el título o el lugar
-	Fuente string
-	Limite int
+	Desde     time.Time // eventos que terminan después de esta fecha
+	Hasta     time.Time // eventos que empiezan antes de esta fecha
+	Texto     string    // palabras que tienen que estar en el título o el lugar
+	Modalidad event.Modalidad
+	Fuente    string
+	Limite    int
 }
 
 // RutaPorDefecto es $XDG_DATA_HOME/eventos-ba/eventos.db
@@ -98,14 +103,16 @@ func (s *Store) Guardar(ctx context.Context, eventos []event.Event) error {
 	defer tx.Rollback()
 
 	stmt, err := tx.PrepareContext(ctx, `
-		INSERT INTO eventos (url, titulo, inicio, fin, lugar, fuente, actualizado)
-		VALUES (?, ?, ?, ?, ?, ?, ?)
+		INSERT INTO eventos (url, titulo, inicio, fin, lugar, modalidad, fuente, termina, actualizado)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
 		ON CONFLICT(url) DO UPDATE SET
 			titulo      = excluded.titulo,
 			inicio      = excluded.inicio,
 			fin         = excluded.fin,
 			lugar       = excluded.lugar,
+			modalidad   = excluded.modalidad,
 			fuente      = excluded.fuente,
+			termina     = excluded.termina,
 			actualizado = excluded.actualizado
 		RETURNING id`)
 	if err != nil {
@@ -116,7 +123,7 @@ func (s *Store) Guardar(ctx context.Context, eventos []event.Event) error {
 	ahora := aTexto(time.Now())
 	for i := range eventos {
 		e := &eventos[i]
-		fila := stmt.QueryRowContext(ctx, e.URL, e.Titulo, aTexto(e.Inicio), aTextoONulo(e.Fin), e.Lugar, e.Fuente, ahora)
+		fila := stmt.QueryRowContext(ctx, e.URL, e.Titulo, aTexto(e.Inicio), aTextoONulo(e.Fin), e.Lugar, string(e.Modalidad), e.Fuente, aTexto(e.Termina()), ahora)
 		if err := fila.Scan(&e.ID); err != nil {
 			return fmt.Errorf("guardando %q: %w", e.Titulo, err)
 		}
@@ -132,7 +139,7 @@ func (s *Store) Buscar(ctx context.Context, f Filtro) ([]event.Event, error) {
 	var args []any
 
 	if !f.Desde.IsZero() {
-		condiciones = append(condiciones, "COALESCE(fin, inicio) >= ?")
+		condiciones = append(condiciones, "termina > ?")
 		args = append(args, aTexto(f.Desde))
 	}
 	if !f.Hasta.IsZero() {
@@ -144,6 +151,15 @@ func (s *Store) Buscar(ctx context.Context, f Filtro) ([]event.Event, error) {
 	for _, t := range terminos(f.Texto) {
 		condiciones = append(condiciones, "' ' || simplificar(titulo || ' ' || lugar) LIKE ?")
 		args = append(args, "% "+t+"%")
+	}
+	// Los híbridos sirven tanto a quien busca presencial como a quien busca online.
+	switch f.Modalidad {
+	case event.Presencial, event.Online:
+		condiciones = append(condiciones, "modalidad IN (?, ?)")
+		args = append(args, string(f.Modalidad), string(event.Hibrido))
+	case event.Hibrido:
+		condiciones = append(condiciones, "modalidad = ?")
+		args = append(args, string(f.Modalidad))
 	}
 	if f.Fuente != "" {
 		condiciones = append(condiciones, "fuente = ? COLLATE NOCASE")
@@ -210,12 +226,13 @@ type escaneable interface {
 
 func escanear(f escaneable) (event.Event, error) {
 	var e event.Event
-	var inicio string
+	var inicio, modalidad string
 	var fin sql.NullString
 
-	if err := f.Scan(&e.ID, &e.URL, &e.Titulo, &inicio, &fin, &e.Lugar, &e.Fuente); err != nil {
+	if err := f.Scan(&e.ID, &e.URL, &e.Titulo, &inicio, &fin, &e.Lugar, &modalidad, &e.Fuente); err != nil {
 		return e, err
 	}
+	e.Modalidad = event.Modalidad(modalidad)
 
 	var err error
 	if e.Inicio, err = desdeTexto(inicio); err != nil {

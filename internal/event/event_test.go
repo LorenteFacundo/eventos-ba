@@ -10,10 +10,11 @@ import (
 func eventoValido() Event {
 	inicio := time.Date(2030, 1, 10, 19, 0, 0, 0, Argentina)
 	return Event{
-		Titulo: "Meetup de Go",
-		Inicio: inicio,
-		Fin:    inicio.Add(2 * time.Hour),
-		URL:    "https://ejemplo.com/meetup",
+		Titulo:    "Meetup de Go",
+		Inicio:    inicio,
+		Fin:       inicio.Add(2 * time.Hour),
+		URL:       "https://ejemplo.com/meetup",
+		Modalidad: Presencial,
 	}
 }
 
@@ -34,6 +35,8 @@ func TestValidar(t *testing.T) {
 		{"sin inicio", func(e *Event) { e.Inicio = time.Time{} }, false},
 		{"inicio fuera de rango", func(e *Event) { e.Inicio = time.Date(1990, 1, 1, 0, 0, 0, 0, Argentina) }, false},
 		{"fin antes del inicio", func(e *Event) { e.Fin = e.Inicio.Add(-time.Hour) }, false},
+		{"online", func(e *Event) { e.Modalidad = Online }, true},
+		{"modalidad inválida", func(e *Event) { e.Modalidad = "telepatía" }, false},
 	}
 
 	for _, c := range casos {
@@ -54,6 +57,7 @@ func TestValidar(t *testing.T) {
 
 func TestPrepararNormaliza(t *testing.T) {
 	e := eventoValido()
+	e.Modalidad = ""
 	e.ID = 99
 	e.Titulo = "  Meetup de Go  "
 	eventos := []Event{e}
@@ -71,6 +75,9 @@ func TestPrepararNormaliza(t *testing.T) {
 	}
 	if got.Fuente != FuentePorDefecto {
 		t.Errorf("Fuente = %q, want %q", got.Fuente, FuentePorDefecto)
+	}
+	if got.Modalidad != Presencial {
+		t.Errorf("Modalidad = %q, want %q", got.Modalidad, Presencial)
 	}
 }
 
@@ -134,4 +141,60 @@ func TestDecodificarJSON(t *testing.T) {
 			t.Error("esperaba error")
 		}
 	})
+}
+
+func TestParsearModalidad(t *testing.T) {
+	casos := map[string]Modalidad{
+		"presencial": Presencial,
+		"Online":     Online,
+		"VIRTUAL":    Online,
+		"híbrido":    Hibrido,
+		" hibrido ":  Hibrido,
+	}
+	for texto, want := range casos {
+		if got, ok := ParsearModalidad(texto); !ok || got != want {
+			t.Errorf("ParsearModalidad(%q) = %q, %v; want %q", texto, got, ok, want)
+		}
+	}
+	if _, ok := ParsearModalidad("remoto"); ok {
+		t.Error("remoto no debería ser una modalidad válida")
+	}
+}
+
+func TestTermina(t *testing.T) {
+	dia := func(d, h, m int) time.Time { return time.Date(2030, 1, d, h, m, 0, 0, Argentina) }
+
+	casos := []struct {
+		nombre      string
+		inicio, fin time.Time
+		want        time.Time
+	}{
+		{"con fin", dia(10, 19, 0), dia(10, 22, 0), dia(10, 22, 0)},
+		{"sin fin", dia(10, 19, 0), time.Time{}, dia(10, 22, 0)},
+		{"termina a medianoche", dia(10, 20, 0), dia(11, 0, 0), dia(11, 0, 0)},
+		{"solo el día", dia(10, 0, 0), time.Time{}, dia(11, 0, 0)},
+		{"varios días sin horario", dia(10, 0, 0), dia(12, 0, 0), dia(13, 0, 0)},
+		{"sin horario de inicio pero con fin", dia(10, 0, 0), dia(10, 18, 0), dia(10, 18, 0)},
+	}
+
+	for _, c := range casos {
+		t.Run(c.nombre, func(t *testing.T) {
+			e := Event{Inicio: c.inicio, Fin: c.fin}
+			if got := e.Termina(); !got.Equal(c.want) {
+				t.Errorf("Termina() = %v, want %v", got, c.want)
+			}
+		})
+	}
+}
+
+func TestPrepararAceptaVirtual(t *testing.T) {
+	e := eventoValido()
+	e.Modalidad = "Virtual"
+	eventos := []Event{e}
+	if err := Preparar(eventos); err != nil {
+		t.Fatalf("Preparar: %v", err)
+	}
+	if eventos[0].Modalidad != Online {
+		t.Errorf("Modalidad = %q, want %q", eventos[0].Modalidad, Online)
+	}
 }

@@ -1,7 +1,7 @@
 # eventos-ba
 
-API pública y gratuita de eventos IT presenciales en la Ciudad de Buenos Aires:
-meetups, conferencias, hackatones y talleres.
+API pública y gratuita de eventos IT en la Ciudad de Buenos Aires: meetups,
+conferencias, hackatones y talleres, presenciales y online.
 
 ```bash
 curl https://eventos-ba.fly.dev/eventos
@@ -12,9 +12,10 @@ curl https://eventos-ba.fly.dev/eventos
 
 ## Qué eventos incluye
 
-Eventos de tecnología presenciales en la Ciudad de Buenos Aires. Si aparece
-alguno en los alrededores se suma igual; la ubicación exacta está en `lugar` y
-en la página oficial de cada evento. Los eventos solo online no se incluyen.
+Eventos de tecnología en la Ciudad de Buenos Aires, presenciales u online
+organizados por comunidades de acá. Si aparece alguno en los alrededores se
+suma igual; la ubicación exacta está en `lugar` y en la página oficial de cada
+evento. Los online de otros países no se incluyen.
 
 ## Endpoints
 
@@ -34,6 +35,7 @@ Todos son opcionales y se pueden combinar, salvo los de fecha (ver abajo).
 | Parámetro | Busca                                                     | Ejemplo             |
 |-----------|-----------------------------------------------------------|---------------------|
 | `q`       | palabras en el título o el lugar (hasta 100 caracteres)   | `?q=python`         |
+| `modalidad` | `presencial`, `online` (o `virtual`) o `hibrido`        | `?modalidad=online` |
 | `fecha`   | eventos de un día                                         | `?fecha=2026-11-05` |
 | `mes`     | eventos de un mes                                         | `?mes=2026-11`      |
 | `desde`   | eventos desde un día                                      | `?desde=2026-11-01` |
@@ -47,16 +49,23 @@ tiene que coincidir con el comienzo de una palabra del título o el lugar:
 `q=educacion` encuentra "Educación", `q=ia` encuentra "IA aplicada" pero no
 "Industria". Con varias palabras tienen que estar todas: `q=ia+palermo`.
 
+**Modalidad.** Los eventos híbridos aparecen tanto con `modalidad=presencial`
+como con `modalidad=online`; `modalidad=hibrido` trae solo esos.
+
 **Fechas.** Van en formato `AAAA-MM-DD` (o `AAAA-MM` para `mes`) y en hora
 argentina. `fecha`, `mes`, `dias` y `desde`/`hasta` arman el período de
 búsqueda, así que se usa uno solo de ellos. Sin ninguno, la API devuelve los
 eventos de ahora en adelante; con `fecha`, `mes` o `desde` también se pueden
 consultar eventos pasados. Un evento entra si está ocurriendo en algún momento
-del período, aunque haya empezado antes.
+del período, aunque haya empezado antes. Si no se conoce la hora de fin, se
+toma que dura 3 horas, o el día entero si solo se conoce la fecha.
 
 ```bash
 # Eventos de IA en noviembre
 curl "https://eventos-ba.fly.dev/eventos?q=ia&mes=2026-11"
+
+# Eventos online del próximo mes
+curl "https://eventos-ba.fly.dev/eventos?modalidad=online&dias=30"
 
 # Lo que hay esta semana
 curl "https://eventos-ba.fly.dev/eventos?dias=7"
@@ -75,6 +84,7 @@ curl "https://eventos-ba.fly.dev/eventos/proximo?q=hackaton"
   "fin": "2026-11-05T22:00:00-03:00",
   "lugar": "Basta Callejón, Palermo",
   "url": "https://www.meetup.com/sysarmy/events/316974697/",
+  "modalidad": "presencial",
   "fuente": "ia"
 }
 ```
@@ -87,6 +97,7 @@ curl "https://eventos-ba.fly.dev/eventos/proximo?q=hackaton"
 | `fin`    | fecha  | Opcional: no aparece si no se conoce                     |
 | `lugar`  | texto  | Dirección o barrio. Puede estar vacío                    |
 | `url`    | texto  | Página oficial o de inscripción                          |
+| `modalidad` | texto | `presencial`, `online` o `hibrido`                     |
 | `fuente` | texto  | Cómo llegó el evento a la base                           |
 
 ### Errores
@@ -138,6 +149,7 @@ curl -X POST https://eventos-ba.fly.dev/eventos \
        "url": "https://ejemplo.com/meetup", "lugar": "Palermo"}'
 ```
 
+- `modalidad` es opcional; si no viene, el evento se carga como `presencial`.
 - Si llega un evento con una `url` que ya existe, se actualiza en vez de duplicarse.
 - Si un evento de la lista es inválido no se guarda ninguno, y la respuesta
   detalla el problema de cada uno.
