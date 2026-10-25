@@ -59,6 +59,26 @@ func (e *Event) normalizar() {
 	if e.Fuente == "" {
 		e.Fuente = FuentePorDefecto
 	}
+	// La zona se guarda con su forma canónica ("caba" -> "CABA"), así el
+	// filtro zona = ? de la base siempre la encuentra.
+	if z, ok := ParsearZona(string(e.Zona)); ok {
+		e.Zona = z
+	}
+}
+
+// Validos separa los eventos que vienen de una fuente externa: los inválidos
+// se descartan con su motivo en vez de frenar la carga de los demás.
+func Validos(eventos []Event) (validos []Event, descartados []error) {
+	for i := range eventos {
+		e := &eventos[i]
+		e.normalizar()
+		if err := e.Validar(); err != nil {
+			descartados = append(descartados, fmt.Errorf("%q: %w", e.Titulo, err))
+			continue
+		}
+		validos = append(validos, *e)
+	}
+	return validos, descartados
 }
 
 func (e Event) Validar() error {

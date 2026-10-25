@@ -58,6 +58,7 @@ func TestPrepararNormaliza(t *testing.T) {
 	e := eventoValido()
 	e.ID = 99
 	e.Titulo = "  Meetup de Go  "
+	e.Zona = "caba"
 	eventos := []Event{e}
 
 	if err := Preparar(eventos); err != nil {
@@ -73,6 +74,27 @@ func TestPrepararNormaliza(t *testing.T) {
 	}
 	if got.Fuente != FuentePorDefecto {
 		t.Errorf("Fuente = %q, want %q", got.Fuente, FuentePorDefecto)
+	}
+	if got.Zona != ZonaCABA {
+		t.Errorf("Zona = %q, want %q", got.Zona, ZonaCABA)
+	}
+}
+
+func TestValidosDescartaSoloLosInvalidos(t *testing.T) {
+	bueno := eventoValido()
+	malo := eventoValido()
+	malo.URL = "sin-esquema"
+
+	validos, descartados := Validos([]Event{bueno, malo})
+
+	if len(validos) != 1 || validos[0].Titulo != bueno.Titulo {
+		t.Errorf("validos = %+v, want solo %q", validos, bueno.Titulo)
+	}
+	if len(descartados) != 1 {
+		t.Fatalf("descartados = %v, want 1", descartados)
+	}
+	if !strings.Contains(descartados[0].Error(), "url") {
+		t.Errorf("descartado = %q, want que mencione la url", descartados[0])
 	}
 }
 

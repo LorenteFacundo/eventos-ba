@@ -102,6 +102,12 @@ func cmdFetch(ctx context.Context, s *store.Store, _ []string) error {
 		fmt.Fprintln(os.Stderr, "aviso:", err)
 	}
 
+	// Las fuentes no pasan por la API, así que se validan acá.
+	eventos, descartados := event.Validos(eventos)
+	for _, err := range descartados {
+		fmt.Fprintln(os.Stderr, "aviso: descarto", err)
+	}
+
 	if err := s.Guardar(ctx, eventos); err != nil {
 		return err
 	}
