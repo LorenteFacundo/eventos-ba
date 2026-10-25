@@ -1,0 +1,14 @@
+/eventos
+*.exe
+
+*.db
+*.db-shm
+*.db-wal
+
+.env
+
+node_modules/
+dist/
+
+# Cartelera IT vive en su propio repo
+web/

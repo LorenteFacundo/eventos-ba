@@ -1,0 +1,7 @@
+.git
+.github
+web
+*.db
+*.db-shm
+*.db-wal
+.env
