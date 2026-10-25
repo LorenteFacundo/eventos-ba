@@ -11,8 +11,6 @@ import (
 	"strings"
 	"time"
 
-	_ "modernc.org/sqlite"
-
 	"github.com/LorenteFacundo/eventos-ba/internal/event"
 )
 
@@ -30,14 +28,13 @@ CREATE TABLE IF NOT EXISTS eventos (
 	fin         TEXT,
 	lugar       TEXT NOT NULL DEFAULT '',
 	fuente      TEXT NOT NULL,
-	zona        TEXT NOT NULL,
 	actualizado TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS eventos_inicio ON eventos(inicio);
 `
 
 // Tiene que coincidir con el orden de Scan en escanear.
-const columnas = `id, url, titulo, inicio, fin, lugar, fuente, zona`
+const columnas = `id, url, titulo, inicio, fin, lugar, fuente`
 
 type Store struct {
 	db *sql.DB
@@ -46,8 +43,8 @@ type Store struct {
 // Filtro para Buscar. Los campos en cero no filtran.
 type Filtro struct {
 	Desde  time.Time // eventos que terminan desde esta fecha
-	Hasta  time.Time // eventos que empiezan hasta esta fecha
-	Zona   event.Zona
+	Hasta  time.Time // eventos que empiezan antes de esta fecha
+	Texto  string    // palabras que tienen que estar en el título o el lugar
 	Fuente string
 	Limite int
 }
@@ -101,15 +98,14 @@ func (s *Store) Guardar(ctx context.Context, eventos []event.Event) error {
 	defer tx.Rollback()
 
 	stmt, err := tx.PrepareContext(ctx, `
-		INSERT INTO eventos (url, titulo, inicio, fin, lugar, fuente, zona, actualizado)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+		INSERT INTO eventos (url, titulo, inicio, fin, lugar, fuente, actualizado)
+		VALUES (?, ?, ?, ?, ?, ?, ?)
 		ON CONFLICT(url) DO UPDATE SET
 			titulo      = excluded.titulo,
 			inicio      = excluded.inicio,
 			fin         = excluded.fin,
 			lugar       = excluded.lugar,
 			fuente      = excluded.fuente,
-			zona        = excluded.zona,
 			actualizado = excluded.actualizado
 		RETURNING id`)
 	if err != nil {
@@ -120,7 +116,7 @@ func (s *Store) Guardar(ctx context.Context, eventos []event.Event) error {
 	ahora := aTexto(time.Now())
 	for i := range eventos {
 		e := &eventos[i]
-		fila := stmt.QueryRowContext(ctx, e.URL, e.Titulo, aTexto(e.Inicio), aTextoONulo(e.Fin), e.Lugar, e.Fuente, string(e.Zona), ahora)
+		fila := stmt.QueryRowContext(ctx, e.URL, e.Titulo, aTexto(e.Inicio), aTextoONulo(e.Fin), e.Lugar, e.Fuente, ahora)
 		if err := fila.Scan(&e.ID); err != nil {
 			return fmt.Errorf("guardando %q: %w", e.Titulo, err)
 		}
@@ -140,12 +136,14 @@ func (s *Store) Buscar(ctx context.Context, f Filtro) ([]event.Event, error) {
 		args = append(args, aTexto(f.Desde))
 	}
 	if !f.Hasta.IsZero() {
-		condiciones = append(condiciones, "inicio <= ?")
+		condiciones = append(condiciones, "inicio < ?")
 		args = append(args, aTexto(f.Hasta))
 	}
-	if f.Zona != "" {
-		condiciones = append(condiciones, "zona = ?")
-		args = append(args, string(f.Zona))
+	// Cada palabra tiene que coincidir con el comienzo de alguna palabra del
+	// título o del lugar: "ia" encuentra "IA aplicada" pero no "Industria".
+	for _, t := range terminos(f.Texto) {
+		condiciones = append(condiciones, "' ' || simplificar(titulo || ' ' || lugar) LIKE ?")
+		args = append(args, "% "+t+"%")
 	}
 	if f.Fuente != "" {
 		condiciones = append(condiciones, "fuente = ? COLLATE NOCASE")
@@ -212,14 +210,12 @@ type escaneable interface {
 
 func escanear(f escaneable) (event.Event, error) {
 	var e event.Event
-	var inicio, zona string
+	var inicio string
 	var fin sql.NullString
 
-	if err := f.Scan(&e.ID, &e.URL, &e.Titulo, &inicio, &fin, &e.Lugar, &e.Fuente, &zona); err != nil {
+	if err := f.Scan(&e.ID, &e.URL, &e.Titulo, &inicio, &fin, &e.Lugar, &e.Fuente); err != nil {
 		return e, err
 	}
-
-	e.Zona = event.Zona(zona)
 
 	var err error
 	if e.Inicio, err = desdeTexto(inicio); err != nil {

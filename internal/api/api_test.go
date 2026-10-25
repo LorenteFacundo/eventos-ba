@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"testing"
@@ -53,7 +54,7 @@ func esperarEstado(t *testing.T, rec *httptest.ResponseRecorder, want int) {
 }
 
 const eventoJSON = `{"titulo": "Meetup de Go", "inicio": "2030-01-10T19:00:00-03:00",
-	"url": "https://ejemplo.com/meetup", "zona": "CABA"}`
+	"url": "https://ejemplo.com/meetup", "lugar": "Palermo"}`
 
 func TestCicloCompleto(t *testing.T) {
 	api := nuevaAPI(t, Config{Token: tokenDePrueba})
@@ -73,15 +74,56 @@ func TestCicloCompleto(t *testing.T) {
 	esperarEstado(t, hacer(api, pedido{metodo: "GET", ruta: ruta}), http.StatusOK)
 	esperarEstado(t, hacer(api, pedido{metodo: "GET", ruta: "/eventos/proximo"}), http.StatusOK)
 
-	rec = hacer(api, pedido{metodo: "GET", ruta: "/eventos?zona=caba&limite=10"})
+	rec = hacer(api, pedido{metodo: "GET", ruta: "/eventos?q=go+palermo&mes=2030-01&limite=10"})
 	esperarEstado(t, rec, http.StatusOK)
 	if !strings.Contains(rec.Body.String(), "Meetup de Go") {
-		t.Errorf("filtro por zona: %s", rec.Body.String())
+		t.Errorf("búsqueda: %s", rec.Body.String())
 	}
 
 	esperarEstado(t, hacer(api, pedido{metodo: "DELETE", ruta: ruta, token: tokenDePrueba}), http.StatusNoContent)
 	esperarEstado(t, hacer(api, pedido{metodo: "GET", ruta: ruta}), http.StatusNotFound)
 	esperarEstado(t, hacer(api, pedido{metodo: "DELETE", ruta: ruta, token: tokenDePrueba}), http.StatusNotFound)
+}
+
+func TestFiltrosDeFecha(t *testing.T) {
+	api := nuevaAPI(t, Config{Token: tokenDePrueba})
+	cuerpo := `[
+		{"titulo": "Uno", "inicio": "2030-01-10T19:00:00-03:00", "url": "https://ejemplo.com/1"},
+		{"titulo": "Dos", "inicio": "2030-01-31T23:30:00-03:00", "url": "https://ejemplo.com/2"},
+		{"titulo": "Tres", "inicio": "2030-02-01T00:00:00-03:00", "url": "https://ejemplo.com/3"}]`
+	esperarEstado(t, hacer(api, pedido{metodo: "POST", ruta: "/eventos", cuerpo: cuerpo, token: tokenDePrueba}), http.StatusCreated)
+
+	casos := []struct {
+		query string
+		want  []string
+	}{
+		{"fecha=2030-01-10", []string{"Uno"}},
+		{"fecha=2030-01-11", nil},
+		{"mes=2030-01", []string{"Uno", "Dos"}},
+		{"mes=2030-02", []string{"Tres"}},
+		{"desde=2030-01-11", []string{"Dos", "Tres"}},
+		{"desde=2030-01-01&hasta=2030-01-31", []string{"Uno", "Dos"}},
+		{"q=dos&mes=2030-01", []string{"Dos"}},
+	}
+
+	for _, c := range casos {
+		t.Run(c.query, func(t *testing.T) {
+			rec := hacer(api, pedido{metodo: "GET", ruta: "/eventos?" + c.query})
+			esperarEstado(t, rec, http.StatusOK)
+
+			var eventos []event.Event
+			if err := json.Unmarshal(rec.Body.Bytes(), &eventos); err != nil {
+				t.Fatalf("respuesta: %s", rec.Body.String())
+			}
+			var got []string
+			for _, e := range eventos {
+				got = append(got, e.Titulo)
+			}
+			if !slices.Equal(got, c.want) {
+				t.Errorf("got %v, want %v", got, c.want)
+			}
+		})
+	}
 }
 
 func TestEscrituraRequiereToken(t *testing.T) {
@@ -147,10 +189,16 @@ func TestPedidosInvalidos(t *testing.T) {
 		p      pedido
 		want   int
 	}{
-		{"evento inválido", pedido{metodo: "POST", ruta: "/eventos", cuerpo: `{"titulo": "x", "url": "ftp://a", "zona": "Marte"}`}, http.StatusBadRequest},
+		{"evento inválido", pedido{metodo: "POST", ruta: "/eventos", cuerpo: `{"titulo": "x", "url": "ftp://a"}`}, http.StatusBadRequest},
 		{"JSON roto", pedido{metodo: "POST", ruta: "/eventos", cuerpo: `{"titulo": `}, http.StatusBadRequest},
 		{"campo desconocido", pedido{metodo: "POST", ruta: "/eventos", cuerpo: `{"titlo": "x"}`}, http.StatusBadRequest},
-		{"zona inválida", pedido{metodo: "GET", ruta: "/eventos?zona=Marte"}, http.StatusBadRequest},
+		{"zona ya no existe", pedido{metodo: "POST", ruta: "/eventos", cuerpo: `{"titulo": "x", "zona": "CABA"}`}, http.StatusBadRequest},
+		{"q muy largo", pedido{metodo: "GET", ruta: "/eventos?q=" + strings.Repeat("a", maxBusqueda+1)}, http.StatusBadRequest},
+		{"fecha mal escrita", pedido{metodo: "GET", ruta: "/eventos?fecha=05/11/2026"}, http.StatusBadRequest},
+		{"mes mal escrito", pedido{metodo: "GET", ruta: "/eventos?mes=noviembre"}, http.StatusBadRequest},
+		{"hasta antes de desde", pedido{metodo: "GET", ruta: "/eventos?desde=2030-02-01&hasta=2030-01-01"}, http.StatusBadRequest},
+		{"fecha y mes juntos", pedido{metodo: "GET", ruta: "/eventos?fecha=2030-01-10&mes=2030-01"}, http.StatusBadRequest},
+		{"filtro inválido en proximo", pedido{metodo: "GET", ruta: "/eventos/proximo?mes=x"}, http.StatusBadRequest},
 		{"dias no numérico", pedido{metodo: "GET", ruta: "/eventos?dias=abc"}, http.StatusBadRequest},
 		{"dias fuera de rango", pedido{metodo: "GET", ruta: "/eventos?dias=36500"}, http.StatusBadRequest},
 		{"limite excesivo", pedido{metodo: "GET", ruta: "/eventos?limite=100000"}, http.StatusBadRequest},

@@ -21,14 +21,13 @@ func abrirParaTest(t *testing.T) *Store {
 	return s
 }
 
-func nuevoEvento(titulo string, inicio time.Time, zona event.Zona, fuente string) event.Event {
+func nuevoEvento(titulo string, inicio time.Time, fuente string) event.Event {
 	return event.Event{
 		Titulo: titulo,
 		Inicio: inicio,
 		Fin:    inicio.Add(2 * time.Hour),
 		URL:    "https://ejemplo.com/" + titulo,
 		Fuente: fuente,
-		Zona:   zona,
 	}
 }
 
@@ -45,7 +44,7 @@ func TestGuardarActualizaPorURL(t *testing.T) {
 	ctx := context.Background()
 	inicio := time.Date(2030, 1, 10, 19, 0, 0, 0, event.Argentina)
 
-	primera := []event.Event{nuevoEvento("meetup", inicio, event.ZonaCABA, "ia")}
+	primera := []event.Event{nuevoEvento("meetup", inicio, "ia")}
 	if err := s.Guardar(ctx, primera); err != nil {
 		t.Fatalf("Guardar: %v", err)
 	}
@@ -54,7 +53,7 @@ func TestGuardarActualizaPorURL(t *testing.T) {
 		t.Fatal("no se asignó ID")
 	}
 
-	segunda := []event.Event{nuevoEvento("meetup", inicio, event.ZonaCABA, "ia")}
+	segunda := []event.Event{nuevoEvento("meetup", inicio, "ia")}
 	segunda[0].Lugar = "Palermo"
 	if err := s.Guardar(ctx, segunda); err != nil {
 		t.Fatalf("Guardar: %v", err)
@@ -84,10 +83,10 @@ func TestBuscar(t *testing.T) {
 	ahora := time.Date(2030, 1, 1, 12, 0, 0, 0, event.Argentina)
 
 	err := s.Guardar(ctx, []event.Event{
-		nuevoEvento("pasado", ahora.Add(-48*time.Hour), event.ZonaCABA, "ia"),
-		nuevoEvento("mañana", ahora.Add(24*time.Hour), event.ZonaCABA, "ia"),
-		nuevoEvento("online", ahora.Add(72*time.Hour), event.ZonaOnline, "dev.events"),
-		nuevoEvento("lejano", ahora.Add(30*24*time.Hour), event.ZonaGBA, "manual"),
+		nuevoEvento("pasado", ahora.Add(-48*time.Hour), "ia"),
+		nuevoEvento("mañana", ahora.Add(24*time.Hour), "ia"),
+		nuevoEvento("en tres días", ahora.Add(72*time.Hour), "dev.events"),
+		nuevoEvento("lejano", ahora.Add(30*24*time.Hour), "manual"),
 	})
 	if err != nil {
 		t.Fatalf("Guardar: %v", err)
@@ -98,13 +97,13 @@ func TestBuscar(t *testing.T) {
 		filtro Filtro
 		want   []string
 	}{
-		{"sin filtro", Filtro{}, []string{"pasado", "mañana", "online", "lejano"}},
-		{"desde", Filtro{Desde: ahora}, []string{"mañana", "online", "lejano"}},
-		{"desde y hasta", Filtro{Desde: ahora, Hasta: ahora.AddDate(0, 0, 7)}, []string{"mañana", "online"}},
-		{"zona", Filtro{Desde: ahora, Zona: event.ZonaCABA}, []string{"mañana"}},
-		{"fuente sin distinguir mayúsculas", Filtro{Fuente: "DEV.EVENTS"}, []string{"online"}},
+		{"sin filtro", Filtro{}, []string{"pasado", "mañana", "en tres días", "lejano"}},
+		{"desde", Filtro{Desde: ahora}, []string{"mañana", "en tres días", "lejano"}},
+		{"desde y hasta", Filtro{Desde: ahora, Hasta: ahora.AddDate(0, 0, 7)}, []string{"mañana", "en tres días"}},
+		{"hasta no incluye el límite", Filtro{Hasta: ahora.Add(24 * time.Hour)}, []string{"pasado"}},
+		{"fuente sin distinguir mayúsculas", Filtro{Fuente: "DEV.EVENTS"}, []string{"en tres días"}},
 		{"límite", Filtro{Desde: ahora, Limite: 1}, []string{"mañana"}},
-		{"sin resultados", Filtro{Zona: event.ZonaGBA, Fuente: "ia"}, nil},
+		{"sin resultados", Filtro{Desde: ahora, Fuente: "otra"}, nil},
 	}
 
 	for _, c := range casos {
@@ -120,11 +119,68 @@ func TestBuscar(t *testing.T) {
 	}
 }
 
+func TestBuscarPorTexto(t *testing.T) {
+	s := abrirParaTest(t)
+	ctx := context.Background()
+	inicio := time.Date(2030, 1, 10, 19, 0, 0, 0, event.Argentina)
+
+	ia := nuevoEvento("TECWEEK ED: IA y Educación", inicio, "ia")
+	ia.Lugar = "Usina del Arte, La Boca"
+	industria := nuevoEvento("Industria 4.0", inicio.Add(time.Hour), "ia")
+	industria.Lugar = "Palermo"
+	if err := s.Guardar(ctx, []event.Event{ia, industria}); err != nil {
+		t.Fatalf("Guardar: %v", err)
+	}
+
+	casos := []struct {
+		texto string
+		want  []string
+	}{
+		{"educacion", []string{ia.Titulo}},
+		{"EDUCACIÓN", []string{ia.Titulo}},
+		{"educ", []string{ia.Titulo}},
+		{"ia", []string{ia.Titulo}},
+		{"palermo", []string{industria.Titulo}},
+		{"ia boca", []string{ia.Titulo}},
+		{"ia palermo", nil},
+		{"4.0", []string{industria.Titulo}},
+		{"100%", nil},
+		{"   ", []string{ia.Titulo, industria.Titulo}},
+	}
+
+	for _, c := range casos {
+		t.Run(c.texto, func(t *testing.T) {
+			eventos, err := s.Buscar(ctx, Filtro{Texto: c.texto})
+			if err != nil {
+				t.Fatalf("Buscar: %v", err)
+			}
+			if got := titulos(eventos); !slices.Equal(got, c.want) {
+				t.Errorf("got %v, want %v", got, c.want)
+			}
+		})
+	}
+}
+
+func TestSimplificar(t *testing.T) {
+	casos := map[string]string{
+		"¡IA en Educación!":     "ia en educacion",
+		"  Año   2030 ":         "ano 2030",
+		"#AdminBirras":          "adminbirras",
+		"Node.js / C#":          "node js c",
+		"São Paulo, Düsseldorf": "sao paulo dusseldorf",
+	}
+	for entrada, want := range casos {
+		if got := simplificar(entrada); got != want {
+			t.Errorf("simplificar(%q) = %q, want %q", entrada, got, want)
+		}
+	}
+}
+
 func TestObtenerYBorrar(t *testing.T) {
 	s := abrirParaTest(t)
 	ctx := context.Background()
 
-	eventos := []event.Event{nuevoEvento("meetup", time.Date(2030, 1, 10, 19, 0, 0, 0, event.Argentina), event.ZonaCABA, "ia")}
+	eventos := []event.Event{nuevoEvento("meetup", time.Date(2030, 1, 10, 19, 0, 0, 0, event.Argentina), "ia")}
 	if err := s.Guardar(ctx, eventos); err != nil {
 		t.Fatalf("Guardar: %v", err)
 	}

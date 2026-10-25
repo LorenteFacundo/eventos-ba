@@ -14,7 +14,6 @@ func eventoValido() Event {
 		Inicio: inicio,
 		Fin:    inicio.Add(2 * time.Hour),
 		URL:    "https://ejemplo.com/meetup",
-		Zona:   ZonaCABA,
 	}
 }
 
@@ -35,7 +34,6 @@ func TestValidar(t *testing.T) {
 		{"sin inicio", func(e *Event) { e.Inicio = time.Time{} }, false},
 		{"inicio fuera de rango", func(e *Event) { e.Inicio = time.Date(1990, 1, 1, 0, 0, 0, 0, Argentina) }, false},
 		{"fin antes del inicio", func(e *Event) { e.Fin = e.Inicio.Add(-time.Hour) }, false},
-		{"zona inválida", func(e *Event) { e.Zona = "Córdoba" }, false},
 	}
 
 	for _, c := range casos {
@@ -58,7 +56,6 @@ func TestPrepararNormaliza(t *testing.T) {
 	e := eventoValido()
 	e.ID = 99
 	e.Titulo = "  Meetup de Go  "
-	e.Zona = "caba"
 	eventos := []Event{e}
 
 	if err := Preparar(eventos); err != nil {
@@ -74,9 +71,6 @@ func TestPrepararNormaliza(t *testing.T) {
 	}
 	if got.Fuente != FuentePorDefecto {
 		t.Errorf("Fuente = %q, want %q", got.Fuente, FuentePorDefecto)
-	}
-	if got.Zona != ZonaCABA {
-		t.Errorf("Zona = %q, want %q", got.Zona, ZonaCABA)
 	}
 }
 
@@ -101,7 +95,7 @@ func TestValidosDescartaSoloLosInvalidos(t *testing.T) {
 func TestPrepararJuntaLosProblemas(t *testing.T) {
 	malo1, malo2 := eventoValido(), eventoValido()
 	malo1.URL = ""
-	malo2.Zona = "Marte"
+	malo2.Inicio = time.Time{}
 
 	err := Preparar([]Event{eventoValido(), malo1, malo2})
 
@@ -111,19 +105,6 @@ func TestPrepararJuntaLosProblemas(t *testing.T) {
 	}
 	if len(errValidacion.Problemas) != 2 {
 		t.Errorf("got %d problemas, want 2: %v", len(errValidacion.Problemas), errValidacion.Problemas)
-	}
-}
-
-func TestParsearZona(t *testing.T) {
-	casos := map[string]Zona{"CABA": ZonaCABA, "caba": ZonaCABA, "gba": ZonaGBA, "ONLINE": ZonaOnline}
-	for texto, want := range casos {
-		if got, ok := ParsearZona(texto); !ok || got != want {
-			t.Errorf("ParsearZona(%q) = %q, %v; want %q", texto, got, ok, want)
-		}
-	}
-
-	if _, ok := ParsearZona("Córdoba"); ok {
-		t.Error("Córdoba no es una zona válida")
 	}
 }
 

@@ -9,8 +9,11 @@ import (
 	"log/slog"
 	"mime"
 	"net/http"
+	"net/url"
 	"strconv"
+	"strings"
 	"time"
+	"unicode/utf8"
 
 	"golang.org/x/time/rate"
 
@@ -23,6 +26,7 @@ const (
 	maxEventosPorPedido = 500
 	limitePorDefecto    = 100
 	limiteMaximo        = 500
+	maxBusqueda         = 100
 )
 
 type Config struct {
@@ -77,12 +81,22 @@ func (srv *servidor) info(w http.ResponseWriter, r *http.Request) {
 	cacheable(w)
 	srv.responderJSON(w, http.StatusOK, map[string]any{
 		"nombre":      "eventos-ba",
-		"descripcion": "Eventos IT en CABA, GBA y online",
+		"descripcion": "Eventos IT en la Ciudad de Buenos Aires",
 		"docs":        "https://github.com/LorenteFacundo/eventos-ba",
 		"rutas": []string{
-			"GET /eventos?zona=CABA|GBA|Online&fuente=...&dias=N&limite=N",
+			"GET /eventos",
 			"GET /eventos/proximo",
 			"GET /eventos/{id}",
+		},
+		"filtros": map[string]string{
+			"q":      "palabras del título o el lugar",
+			"fecha":  "un día: AAAA-MM-DD",
+			"mes":    "un mes: AAAA-MM",
+			"desde":  "desde un día: AAAA-MM-DD",
+			"hasta":  "hasta un día inclusive: AAAA-MM-DD",
+			"dias":   "los próximos N días",
+			"fuente": "manual, ia, dev.events",
+			"limite": fmt.Sprintf("máximo de resultados (1 a %d)", limiteMaximo),
 		},
 	})
 }
@@ -105,23 +119,18 @@ func (srv *servidor) listarEventos(w http.ResponseWriter, r *http.Request) {
 
 func filtroDesdeQuery(r *http.Request) (store.Filtro, error) {
 	q := r.URL.Query()
-	ahora := time.Now()
-	filtro := store.Filtro{Desde: ahora, Fuente: q.Get("fuente"), Limite: limitePorDefecto}
+	filtro := store.Filtro{Fuente: q.Get("fuente"), Limite: limitePorDefecto}
 
-	if z := q.Get("zona"); z != "" {
-		zona, ok := event.ParsearZona(z)
-		if !ok {
-			return filtro, errors.New("zona inválida: usá CABA, GBA u Online")
-		}
-		filtro.Zona = zona
+	texto := strings.TrimSpace(q.Get("q"))
+	if utf8.RuneCountInString(texto) > maxBusqueda {
+		return filtro, fmt.Errorf("q no puede superar los %d caracteres", maxBusqueda)
 	}
+	filtro.Texto = texto
 
-	if d := q.Get("dias"); d != "" {
-		dias, err := strconv.Atoi(d)
-		if err != nil || dias < 1 || dias > 3650 {
-			return filtro, errors.New("dias tiene que ser un número entre 1 y 3650")
-		}
-		filtro.Hasta = ahora.AddDate(0, 0, dias)
+	var err error
+	filtro.Desde, filtro.Hasta, err = periodo(q, time.Now())
+	if err != nil {
+		return filtro, err
 	}
 
 	if l := q.Get("limite"); l != "" {
@@ -135,14 +144,86 @@ func filtroDesdeQuery(r *http.Request) (store.Filtro, error) {
 	return filtro, nil
 }
 
+// periodo arma el rango de fechas con fecha, mes, dias o desde/hasta, que no
+// se pueden combinar entre sí. Sin ninguno van los eventos de ahora en adelante.
+// Hasta queda abierto: es el primer instante que ya no entra.
+func periodo(q url.Values, ahora time.Time) (desde, hasta time.Time, err error) {
+	formas := 0
+	for _, p := range []string{"fecha", "mes", "dias"} {
+		if q.Has(p) {
+			formas++
+		}
+	}
+	if q.Has("desde") || q.Has("hasta") {
+		formas++
+	}
+	if formas > 1 {
+		return desde, hasta, errors.New("usá uno solo de estos filtros: fecha, mes, dias o desde/hasta")
+	}
+
+	switch {
+	case q.Has("fecha"):
+		dia, err := parsearDia("fecha", q.Get("fecha"))
+		return dia, dia.AddDate(0, 0, 1), err
+
+	case q.Has("mes"):
+		mes, err := time.ParseInLocation("2006-01", q.Get("mes"), event.Argentina)
+		if err != nil {
+			return desde, hasta, errors.New("mes tiene que tener el formato AAAA-MM, por ejemplo 2026-11")
+		}
+		return mes, mes.AddDate(0, 1, 0), nil
+
+	case q.Has("dias"):
+		dias, err := strconv.Atoi(q.Get("dias"))
+		if err != nil || dias < 1 || dias > 3650 {
+			return desde, hasta, errors.New("dias tiene que ser un número entre 1 y 3650")
+		}
+		return ahora, ahora.AddDate(0, 0, dias), nil
+	}
+
+	desde = ahora
+	if q.Has("desde") {
+		if desde, err = parsearDia("desde", q.Get("desde")); err != nil {
+			return desde, hasta, err
+		}
+	}
+	if q.Has("hasta") {
+		dia, err := parsearDia("hasta", q.Get("hasta"))
+		if err != nil {
+			return desde, hasta, err
+		}
+		hasta = dia.AddDate(0, 0, 1) // el día de hasta entra completo
+		if !hasta.After(desde) {
+			return desde, hasta, errors.New("hasta no puede ser anterior a desde (sin desde, se toma hoy)")
+		}
+	}
+	return desde, hasta, nil
+}
+
+func parsearDia(nombre, valor string) (time.Time, error) {
+	dia, err := time.ParseInLocation(time.DateOnly, valor, event.Argentina)
+	if err != nil {
+		return dia, fmt.Errorf("%s tiene que tener el formato AAAA-MM-DD, por ejemplo 2026-11-05", nombre)
+	}
+	return dia, nil
+}
+
+// proximoEvento acepta los mismos filtros que /eventos.
 func (srv *servidor) proximoEvento(w http.ResponseWriter, r *http.Request) {
-	eventos, err := srv.store.Buscar(r.Context(), store.Filtro{Desde: time.Now(), Limite: 1})
+	filtro, err := filtroDesdeQuery(r)
+	if err != nil {
+		srv.responderError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	filtro.Limite = 1
+
+	eventos, err := srv.store.Buscar(r.Context(), filtro)
 	if err != nil {
 		srv.errorInterno(w, r, err)
 		return
 	}
 	if len(eventos) == 0 {
-		srv.responderError(w, http.StatusNotFound, "no hay próximos eventos")
+		srv.responderError(w, http.StatusNotFound, "no hay eventos que coincidan")
 		return
 	}
 	cacheable(w)

@@ -1,7 +1,7 @@
 # eventos-ba
 
-API pública y gratuita de eventos IT en Buenos Aires: meetups, conferencias,
-hackatones y talleres en CABA, GBA y online.
+API pública y gratuita de eventos IT presenciales en la Ciudad de Buenos Aires:
+meetups, conferencias, hackatones y talleres.
 
 ```bash
 curl https://eventos-ba.fly.dev/eventos
@@ -10,12 +10,18 @@ curl https://eventos-ba.fly.dev/eventos
 > La URL de arriba es la del deploy en Fly.io. Si corrés tu propia instancia,
 > reemplazala por la tuya.
 
+## Qué eventos incluye
+
+Eventos de tecnología presenciales en la Ciudad de Buenos Aires. Si aparece
+alguno en los alrededores se suma igual; la ubicación exacta está en `lugar` y
+en la página oficial de cada evento. Los eventos solo online no se incluyen.
+
 ## Endpoints
 
 | Método | Ruta               | Descripción                                   |
 |--------|--------------------|-----------------------------------------------|
 | GET    | `/eventos`         | Próximos eventos, ordenados por fecha         |
-| GET    | `/eventos/proximo` | El próximo evento                             |
+| GET    | `/eventos/proximo` | El próximo evento (acepta los mismos filtros) |
 | GET    | `/eventos/{id}`    | Un evento por su ID                           |
 | GET    | `/`                | Información de la API                         |
 
@@ -23,20 +29,40 @@ No hace falta registrarse ni usar una API key para leer.
 
 ### Filtros de `/eventos`
 
-Todos son opcionales y se pueden combinar.
+Todos son opcionales y se pueden combinar, salvo los de fecha (ver abajo).
 
-| Parámetro | Valores                          | Ejemplo        |
-|-----------|----------------------------------|----------------|
-| `zona`    | `CABA`, `GBA`, `Online`          | `?zona=caba`   |
-| `dias`    | eventos que empiezan en los próximos N días (1 a 3650) | `?dias=7` |
-| `fuente`  | de dónde salió el evento: `manual`, `ia`, `dev.events` | `?fuente=manual` |
-| `limite`  | cantidad máxima de resultados (1 a 500, por defecto 100) | `?limite=10` |
+| Parámetro | Busca                                                     | Ejemplo             |
+|-----------|-----------------------------------------------------------|---------------------|
+| `q`       | palabras en el título o el lugar (hasta 100 caracteres)   | `?q=python`         |
+| `fecha`   | eventos de un día                                         | `?fecha=2026-11-05` |
+| `mes`     | eventos de un mes                                         | `?mes=2026-11`      |
+| `desde`   | eventos desde un día                                      | `?desde=2026-11-01` |
+| `hasta`   | eventos hasta un día, inclusive                           | `?hasta=2026-11-30` |
+| `dias`    | eventos de los próximos N días (1 a 3650)                 | `?dias=7`           |
+| `fuente`  | de dónde salió el evento: `manual`, `ia`, `dev.events`    | `?fuente=manual`    |
+| `limite`  | cantidad máxima de resultados (1 a 500, por defecto 100)  | `?limite=10`        |
 
-Los eventos que ya empezaron pero todavía no terminaron siguen apareciendo.
+**Búsqueda por texto.** No distingue mayúsculas ni tildes, y cada palabra
+tiene que coincidir con el comienzo de una palabra del título o el lugar:
+`q=educacion` encuentra "Educación", `q=ia` encuentra "IA aplicada" pero no
+"Industria". Con varias palabras tienen que estar todas: `q=ia+palermo`.
+
+**Fechas.** Van en formato `AAAA-MM-DD` (o `AAAA-MM` para `mes`) y en hora
+argentina. `fecha`, `mes`, `dias` y `desde`/`hasta` arman el período de
+búsqueda, así que se usa uno solo de ellos. Sin ninguno, la API devuelve los
+eventos de ahora en adelante; con `fecha`, `mes` o `desde` también se pueden
+consultar eventos pasados. Un evento entra si está ocurriendo en algún momento
+del período, aunque haya empezado antes.
 
 ```bash
-# Eventos presenciales en CABA de la próxima semana
-curl "https://eventos-ba.fly.dev/eventos?zona=CABA&dias=7"
+# Eventos de IA en noviembre
+curl "https://eventos-ba.fly.dev/eventos?q=ia&mes=2026-11"
+
+# Lo que hay esta semana
+curl "https://eventos-ba.fly.dev/eventos?dias=7"
+
+# La próxima hackatón
+curl "https://eventos-ba.fly.dev/eventos/proximo?q=hackaton"
 ```
 
 ### Formato de un evento
@@ -49,8 +75,7 @@ curl "https://eventos-ba.fly.dev/eventos?zona=CABA&dias=7"
   "fin": "2026-11-05T22:00:00-03:00",
   "lugar": "Basta Callejón, Palermo",
   "url": "https://www.meetup.com/sysarmy/events/316974697/",
-  "fuente": "ia",
-  "zona": "CABA"
+  "fuente": "ia"
 }
 ```
 
@@ -60,23 +85,22 @@ curl "https://eventos-ba.fly.dev/eventos?zona=CABA&dias=7"
 | `titulo` | texto  |                                                          |
 | `inicio` | fecha  | RFC 3339 en hora argentina. `00:00` significa que solo se conoce el día |
 | `fin`    | fecha  | Opcional: no aparece si no se conoce                     |
-| `lugar`  | texto  | Dirección, barrio o `Online`. Puede estar vacío          |
+| `lugar`  | texto  | Dirección o barrio. Puede estar vacío                    |
 | `url`    | texto  | Página oficial o de inscripción                          |
 | `fuente` | texto  | Cómo llegó el evento a la base                           |
-| `zona`   | texto  | `CABA`, `GBA` u `Online`                                 |
 
 ### Errores
 
 Los errores devuelven un código HTTP y un JSON con el detalle:
 
 ```json
-{ "error": "zona inválida: usá CABA, GBA u Online" }
+{ "error": "mes tiene que tener el formato AAAA-MM, por ejemplo 2026-11" }
 ```
 
 | Código | Cuándo                                              |
 |--------|-----------------------------------------------------|
 | 400    | Parámetros o datos inválidos                        |
-| 404    | El evento no existe, o no hay próximos eventos      |
+| 404    | El evento no existe, o no hay ninguno que coincida  |
 | 429    | Demasiados pedidos (ver límites)                    |
 | 500    | Error del servidor                                  |
 
@@ -111,7 +135,7 @@ curl -X POST https://eventos-ba.fly.dev/eventos \
   -H "Authorization: Bearer $EVENTOS_TOKEN" \
   -H "Content-Type: application/json" \
   -d '{"titulo": "Meetup de Go", "inicio": "2026-11-05T19:00:00-03:00",
-       "url": "https://ejemplo.com/meetup", "zona": "CABA", "lugar": "Palermo"}'
+       "url": "https://ejemplo.com/meetup", "lugar": "Palermo"}'
 ```
 
 - Si llega un evento con una `url` que ya existe, se actualiza en vez de duplicarse.
@@ -121,7 +145,7 @@ curl -X POST https://eventos-ba.fly.dev/eventos \
 
 ## Correrla localmente
 
-Requiere Go 1.24 o más nuevo.
+Requiere Go 1.27.3 o más nuevo.
 
 ```bash
 go run ./cmd/eventos import eventos.json   # carga eventos desde un archivo

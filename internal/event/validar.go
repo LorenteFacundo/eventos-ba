@@ -59,11 +59,6 @@ func (e *Event) normalizar() {
 	if e.Fuente == "" {
 		e.Fuente = FuentePorDefecto
 	}
-	// La zona se guarda con su forma canónica ("caba" -> "CABA"), así el
-	// filtro zona = ? de la base siempre la encuentra.
-	if z, ok := ParsearZona(string(e.Zona)); ok {
-		e.Zona = z
-	}
 }
 
 // Validos separa los eventos que vienen de una fuente externa: los inválidos
@@ -116,10 +111,6 @@ func (e Event) Validar() error {
 	}
 	if !e.Fin.IsZero() && e.Fin.Before(e.Inicio) {
 		agregar("la fecha de fin es anterior al inicio")
-	}
-
-	if _, ok := ParsearZona(string(e.Zona)); !ok {
-		agregar("zona %q inválida (usá %s, %s u %s)", e.Zona, ZonaCABA, ZonaGBA, ZonaOnline)
 	}
 
 	if len(problemas) > 0 {

@@ -123,7 +123,7 @@ func cmdList(ctx context.Context, s *store.Store, _ []string) error {
 
 	fmt.Printf("%d próximos eventos\n\n", len(eventos))
 	for _, e := range eventos {
-		fmt.Printf("%4d  %s  %-6s  %-10s  %s\n", e.ID, formatearFecha(e.Inicio), e.Zona, e.Fuente, e.Titulo)
+		fmt.Printf("%4d  %s  %-10s  %s\n", e.ID, formatearFecha(e.Inicio), e.Fuente, e.Titulo)
 	}
 	return nil
 }
