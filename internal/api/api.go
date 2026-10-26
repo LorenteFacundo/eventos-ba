@@ -35,15 +35,18 @@ type Config struct {
 	// HeaderIP es el header con la IP real del cliente cuando hay un proxy
 	// adelante (Fly-Client-IP en Fly.io). Vacío usa la IP de la conexión.
 	HeaderIP string
-	Log      *slog.Logger
+	// Version se muestra en GET /.
+	Version string
+	Log     *slog.Logger
 }
 
 type servidor struct {
 	store         *store.Store
 	token         string
 	headerIP      string
+	version       string
 	log           *slog.Logger
-	limLecturas   *limitador
+	limGlobal     *limitador
 	limEscrituras *limitador
 }
 
@@ -57,16 +60,17 @@ func Handler(s *store.Store, cfg Config) http.Handler {
 		store:         s,
 		token:         cfg.Token,
 		headerIP:      cfg.HeaderIP,
+		version:       cfg.Version,
 		log:           log,
-		limLecturas:   nuevoLimitador(5, 60),                         // 5 por segundo, ráfagas de 60
+		limGlobal:     nuevoLimitador(5, 60),                         // 5 por segundo, ráfagas de 60
 		limEscrituras: nuevoLimitador(rate.Every(6*time.Second), 10), // 10 por minuto
 	}
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /{$}", srv.info)
-	mux.HandleFunc("GET /docs", srv.docs)
-	mux.HandleFunc("GET /docs/init.js", srv.docsInit)
-	mux.HandleFunc("GET /v1/openapi.yaml", srv.openapi)
+	mux.HandleFunc("GET /docs", docs)
+	mux.HandleFunc("GET /docs/init.js", docsInit)
+	mux.HandleFunc("GET /v1/openapi.yaml", openapi)
 	mux.HandleFunc("GET /v1/eventos", srv.listarEventos)
 	mux.HandleFunc("GET /v1/eventos/proximo", srv.proximoEvento)
 	mux.HandleFunc("GET /v1/eventos/{id}", srv.obtenerEvento)
@@ -75,38 +79,40 @@ func Handler(s *store.Store, cfg Config) http.Handler {
 	mux.HandleFunc("GET /eventos", redirigirV1)
 	mux.HandleFunc("GET /eventos/{resto...}", redirigirV1)
 
-	var h http.Handler = mux
-	h = srv.limitar(srv.limLecturas, h)
+	// El healthcheck queda fuera del límite por IP para que el proxy nunca
+	// vea un 429 y crea que la API está caída.
+	raiz := http.NewServeMux()
+	raiz.HandleFunc("GET /healthz", srv.salud)
+	raiz.Handle("/", srv.limitar(srv.limGlobal, mux))
+
+	var h http.Handler = raiz
 	h = cabecerasSeguridad(h)
+	h = srv.recuperar(h)
 	h = srv.registrarPedidos(h)
 	return h
 }
 
+// info apunta a la documentación en vez de repetirla: la fuente de verdad
+// de rutas y filtros es el OpenAPI.
 func (srv *servidor) info(w http.ResponseWriter, r *http.Request) {
 	cacheable(w)
-	srv.responderJSON(w, http.StatusOK, map[string]any{
+	srv.responderJSON(w, http.StatusOK, map[string]string{
 		"nombre":      "eventos-ba",
 		"descripcion": "Eventos IT en la Ciudad de Buenos Aires, presenciales y online",
-		"docs":        "https://eventos-ba.fly.dev/docs",
-		"openapi":     "https://eventos-ba.fly.dev/v1/openapi.yaml",
+		"version":     srv.version,
+		"docs":        "/docs",
+		"openapi":     "/v1/openapi.yaml",
 		"codigo":      "https://github.com/LorenteFacundo/eventos-ba",
-		"rutas": []string{
-			"GET /v1/eventos",
-			"GET /v1/eventos/proximo",
-			"GET /v1/eventos/{id}",
-		},
-		"filtros": map[string]string{
-			"q":         "palabras del título o el lugar",
-			"modalidad": "presencial, online o hibrido (los híbridos entran en los dos)",
-			"fecha":     "un día: AAAA-MM-DD",
-			"mes":       "un mes: AAAA-MM",
-			"desde":     "desde un día: AAAA-MM-DD",
-			"hasta":     "hasta un día inclusive: AAAA-MM-DD",
-			"dias":      "los próximos N días",
-			"fuente":    "manual, ia, dev.events",
-			"limite":    fmt.Sprintf("máximo de resultados (1 a %d)", limiteMaximo),
-		},
 	})
+}
+
+func (srv *servidor) salud(w http.ResponseWriter, r *http.Request) {
+	if err := srv.store.Ping(r.Context()); err != nil {
+		srv.log.Error("healthcheck", "error", err)
+		srv.responderError(w, http.StatusServiceUnavailable, "la base no responde")
+		return
+	}
+	srv.responderJSON(w, http.StatusOK, map[string]string{"estado": "ok"})
 }
 
 func (srv *servidor) listarEventos(w http.ResponseWriter, r *http.Request) {
@@ -194,7 +200,8 @@ func periodo(q url.Values, ahora time.Time) (desde, hasta time.Time, err error) 
 		if err != nil || dias < 1 || dias > 3650 {
 			return desde, hasta, errors.New("dias tiene que ser un número entre 1 y 3650")
 		}
-		return ahora, ahora.AddDate(0, 0, dias), nil
+		// Días completos, como hasta: dias=1 es lo que queda de hoy, no 24 horas.
+		return ahora, inicioDelDia(ahora).AddDate(0, 0, dias), nil
 	}
 
 	desde = ahora
@@ -214,6 +221,11 @@ func periodo(q url.Values, ahora time.Time) (desde, hasta time.Time, err error) 
 		}
 	}
 	return desde, hasta, nil
+}
+
+func inicioDelDia(t time.Time) time.Time {
+	t = t.In(event.Argentina)
+	return time.Date(t.Year(), t.Month(), t.Day(), 0, 0, 0, 0, event.Argentina)
 }
 
 func parsearDia(nombre, valor string) (time.Time, error) {

@@ -32,5 +32,13 @@ func descargar(ctx context.Context, url string) ([]byte, error) {
 		return nil, fmt.Errorf("%s respondió %s", url, resp.Status)
 	}
 
-	return io.ReadAll(io.LimitReader(resp.Body, maxDescarga))
+	// Se lee un byte de más para distinguir "justo cabe" de "se pasó".
+	datos, err := io.ReadAll(io.LimitReader(resp.Body, maxDescarga+1))
+	if err != nil {
+		return nil, err
+	}
+	if len(datos) > maxDescarga {
+		return nil, fmt.Errorf("%s supera los %d MB", url, maxDescarga>>20)
+	}
+	return datos, nil
 }

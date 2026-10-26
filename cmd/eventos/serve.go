@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"log/slog"
 	"net/http"
@@ -34,6 +33,7 @@ func cmdServe(ctx context.Context, s *store.Store, args []string) error {
 		Handler: api.Handler(s, api.Config{
 			Token:    token,
 			HeaderIP: os.Getenv("EVENTOS_HEADER_IP"),
+			Version:  version(),
 			Log:      log,
 		}),
 		ReadHeaderTimeout: 5 * time.Second,
@@ -58,11 +58,7 @@ func cmdServe(ctx context.Context, s *store.Store, args []string) error {
 	log.Info("apagando la API")
 	ctxApagado, cancelar := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancelar()
-
-	if err := servidor.Shutdown(ctxApagado); err != nil && !errors.Is(err, http.ErrServerClosed) {
-		return err
-	}
-	return nil
+	return servidor.Shutdown(ctxApagado)
 }
 
 // direccionServidor: primero el argumento, después $PORT, y si no localhost:8080.

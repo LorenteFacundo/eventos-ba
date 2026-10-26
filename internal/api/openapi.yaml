@@ -39,7 +39,7 @@ paths:
     get:
       tags: [info]
       summary: Información de la API
-      description: Nombre, descripción, rutas, filtros y enlaces a la documentación.
+      description: Nombre, descripción, versión del binario y enlaces a la documentación y al código.
       operationId: info
       responses:
         "200":
@@ -48,9 +48,41 @@ paths:
             application/json:
               schema:
                 type: object
-                additionalProperties: true
+                additionalProperties:
+                  type: string
+              example:
+                nombre: eventos-ba
+                descripcion: Eventos IT en la Ciudad de Buenos Aires, presenciales y online
+                version: 3cd8ecc
+                docs: /docs
+                openapi: /v1/openapi.yaml
+                codigo: https://github.com/LorenteFacundo/eventos-ba
         "429":
           $ref: "#/components/responses/DemasiadosPedidos"
+
+  /healthz:
+    get:
+      tags: [info]
+      summary: Estado del servicio
+      description: Responde 200 si la API y la base están operativas. No cuenta para el límite por IP.
+      operationId: salud
+      responses:
+        "200":
+          description: Todo bien
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  estado:
+                    type: string
+                    example: ok
+        "503":
+          description: La base no responde.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
 
   /v1/eventos:
     get:
@@ -329,7 +361,7 @@ components:
     hasta:
       name: hasta
       in: query
-      description: Eventos hasta un día, inclusive. Sin `desde` se toma desde hoy.
+      description: Eventos hasta un día, inclusive. Sin `desde` se toma desde ahora.
       schema:
         type: string
         format: date
@@ -337,7 +369,7 @@ components:
     dias:
       name: dias
       in: query
-      description: Eventos de los próximos N días.
+      description: Eventos desde ahora hasta el final del día N, contando hoy como el día 1.
       schema:
         type: integer
         minimum: 1
@@ -346,7 +378,10 @@ components:
     fuente:
       name: fuente
       in: query
-      description: De dónde salió el evento. No distingue mayúsculas.
+      description: |
+        Cómo llegó el evento a la base: `manual` (cargado a mano), `ia`
+        (encontrado con ayuda de IA y revisado antes de cargarlo) o
+        `dev.events` (traído por `eventos fetch`). No distingue mayúsculas.
       schema:
         type: string
       examples:

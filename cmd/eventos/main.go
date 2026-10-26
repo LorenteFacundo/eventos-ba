@@ -16,6 +16,7 @@ import (
 	"io"
 	"os"
 	"os/signal"
+	"runtime/debug"
 	"syscall"
 	"time"
 
@@ -31,6 +32,7 @@ comandos:
   list             muestra los próximos eventos
   import ARCHIVO   carga eventos desde un JSON (- lee de stdin)
   serve [DIRECCION] levanta la API (por defecto en localhost:8080)
+  version          muestra la versión del binario
 `
 
 type comando func(ctx context.Context, s *store.Store, args []string) error
@@ -51,7 +53,39 @@ func (e errUso) Error() string {
 	return e.mensaje
 }
 
+// versionBuild la fija el Makefile con -ldflags "-X main.versionBuild=...".
+var versionBuild = ""
+
+// version devuelve la versión fijada al compilar o, si no hay, el commit que
+// Go guarda cuando se compila desde un checkout de git.
+func version() string {
+	if versionBuild != "" {
+		return versionBuild
+	}
+	info, ok := debug.ReadBuildInfo()
+	if !ok {
+		return "dev"
+	}
+	v, modificado := "dev", ""
+	for _, s := range info.Settings {
+		switch s.Key {
+		case "vcs.revision":
+			v = s.Value[:min(7, len(s.Value))]
+		case "vcs.modified":
+			if s.Value == "true" {
+				modificado = "+cambios"
+			}
+		}
+	}
+	return v + modificado
+}
+
 func main() {
+	if len(os.Args) > 1 && os.Args[1] == "version" {
+		fmt.Println(version())
+		return
+	}
+
 	err := run(os.Args[1:])
 	if err == nil {
 		return
@@ -124,7 +158,7 @@ func cmdList(ctx context.Context, s *store.Store, _ []string) error {
 
 	fmt.Printf("%d próximos eventos\n\n", len(eventos))
 	for _, e := range eventos {
-		fmt.Printf("%4d  %s  %-10s  %-10s  %s\n", e.ID, formatearFecha(e.Inicio), e.Modalidad, e.Fuente, e.Titulo)
+		fmt.Printf("%4d  %s  %-10s  %-10s  %s\n", e.ID, formatearFecha(e), e.Modalidad, e.Fuente, e.Titulo)
 	}
 	return nil
 }
@@ -163,10 +197,10 @@ func leerArchivo(archivo string) ([]byte, error) {
 	return os.ReadFile(archivo)
 }
 
-// Los eventos sin hora (00:00) se muestran solo con el día.
-func formatearFecha(t time.Time) string {
-	if t.Hour() == 0 && t.Minute() == 0 {
-		return t.Format("02/01") + "      "
+// Los eventos sin hora se muestran solo con el día.
+func formatearFecha(e event.Event) string {
+	if e.SinHorario() {
+		return e.Inicio.Format("02/01") + "      "
 	}
-	return t.Format("02/01 15:04")
+	return e.Inicio.Format("02/01 15:04")
 }

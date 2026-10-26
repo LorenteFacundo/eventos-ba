@@ -253,6 +253,21 @@ func TestSimplificar(t *testing.T) {
 	}
 }
 
+func TestMigrarEsIdempotente(t *testing.T) {
+	ruta := filepath.Join(t.TempDir(), "test.db")
+	for range 2 {
+		s, err := Open(ruta)
+		if err != nil {
+			t.Fatalf("Open: %v", err)
+		}
+		var version int
+		if err := s.db.QueryRow("PRAGMA user_version").Scan(&version); err != nil || version != len(migraciones) {
+			t.Errorf("user_version = %d, %v; want %d", version, err, len(migraciones))
+		}
+		s.Close()
+	}
+}
+
 func TestObtenerYBorrar(t *testing.T) {
 	s := abrirParaTest(t)
 	ctx := context.Background()

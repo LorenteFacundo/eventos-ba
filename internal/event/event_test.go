@@ -141,6 +141,12 @@ func TestDecodificarJSON(t *testing.T) {
 			t.Error("esperaba error")
 		}
 	})
+
+	t.Run("datos después del final", func(t *testing.T) {
+		if _, err := DecodificarJSON([]byte(`{"titulo": "A"} basura`)); err == nil {
+			t.Error("esperaba error")
+		}
+	})
 }
 
 func TestParsearModalidad(t *testing.T) {

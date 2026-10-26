@@ -3,6 +3,7 @@ package api
 import (
 	"crypto/subtle"
 	"net/http"
+	"runtime/debug"
 	"time"
 )
 
@@ -62,6 +63,19 @@ func cabecerasSeguridad(siguiente http.Handler) http.Handler {
 	})
 }
 
+// recuperar convierte un panic en un 500 con JSON en vez de cortar la conexión.
+func (srv *servidor) recuperar(siguiente http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		defer func() {
+			if p := recover(); p != nil {
+				srv.log.Error("panic", "ruta", r.URL.Path, "panic", p, "stack", string(debug.Stack()))
+				srv.responderError(w, http.StatusInternalServerError, "error interno del servidor")
+			}
+		}()
+		siguiente.ServeHTTP(w, r)
+	})
+}
+
 func (srv *servidor) registrarPedidos(siguiente http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		inicio := time.Now()
@@ -88,4 +102,9 @@ type respuestaConEstado struct {
 func (r *respuestaConEstado) WriteHeader(estado int) {
 	r.estado = estado
 	r.ResponseWriter.WriteHeader(estado)
+}
+
+// Unwrap deja que http.ResponseController llegue al ResponseWriter original.
+func (r *respuestaConEstado) Unwrap() http.ResponseWriter {
+	return r.ResponseWriter
 }

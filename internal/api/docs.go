@@ -8,9 +8,13 @@ import (
 //go:embed openapi.yaml
 var openapiYAML []byte
 
-// Swagger UI se carga desde un CDN con versión fija; la API solo sirve esta
-// página, el script que la inicializa y el openapi.yaml.
-const swaggerCDN = "https://cdn.jsdelivr.net/npm/swagger-ui-dist@5.17.14"
+// Swagger UI se carga desde un CDN con versión fija y hash de integridad; la
+// API solo sirve esta página, el script que la inicializa y el openapi.yaml.
+const (
+	swaggerCDN     = "https://cdn.jsdelivr.net/npm/swagger-ui-dist@5.17.14"
+	swaggerCSSHash = "sha384-wxLW6kwyHktdDGr6Pv1zgm/VGJh99lfUbzSn6HNHBENZlCN7W602k9VkGdxuFvPn"
+	swaggerJSHash  = "sha384-wmyclcVGX/WhUkdkATwhaK1X1JtiNrr2EoYJ+diV3vj4v6OC5yCeSu+yW13SYJep"
+)
 
 const docsHTML = `<!doctype html>
 <html lang="es">
@@ -18,11 +22,11 @@ const docsHTML = `<!doctype html>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>eventos-ba · documentación de la API</title>
-  <link rel="stylesheet" href="` + swaggerCDN + `/swagger-ui.css">
+  <link rel="stylesheet" href="` + swaggerCDN + `/swagger-ui.css" integrity="` + swaggerCSSHash + `" crossorigin="anonymous">
 </head>
 <body>
   <div id="swagger-ui"></div>
-  <script src="` + swaggerCDN + `/swagger-ui-bundle.js"></script>
+  <script src="` + swaggerCDN + `/swagger-ui-bundle.js" integrity="` + swaggerJSHash + `" crossorigin="anonymous"></script>
   <script src="/docs/init.js"></script>
 </body>
 </html>
@@ -43,27 +47,23 @@ const docsInitJS = `window.ui = SwaggerUIBundle({
 const docsCSP = "default-src 'none'; script-src 'self' " + swaggerCDN + "/; style-src 'unsafe-inline' " + swaggerCDN +
 	"/; img-src data: " + swaggerCDN + "/; font-src " + swaggerCDN + "/; connect-src 'self'; frame-ancestors 'none'"
 
-func (srv *servidor) openapi(w http.ResponseWriter, r *http.Request) {
-	h := w.Header()
-	h.Set("Content-Type", "application/yaml; charset=utf-8")
-	h.Set("Cache-Control", "public, max-age=3600")
-	h.Set("Access-Control-Allow-Origin", "*")
-	w.Write(openapiYAML)
+func openapi(w http.ResponseWriter, r *http.Request) {
+	servirEstatico(w, "application/yaml; charset=utf-8", openapiYAML)
 }
 
-func (srv *servidor) docs(w http.ResponseWriter, r *http.Request) {
-	h := w.Header()
-	h.Set("Content-Type", "text/html; charset=utf-8")
-	h.Set("Content-Security-Policy", docsCSP)
-	h.Set("Cache-Control", "public, max-age=3600")
-	w.Write([]byte(docsHTML))
+func docs(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Security-Policy", docsCSP)
+	servirEstatico(w, "text/html; charset=utf-8", []byte(docsHTML))
 }
 
-func (srv *servidor) docsInit(w http.ResponseWriter, r *http.Request) {
-	h := w.Header()
-	h.Set("Content-Type", "text/javascript; charset=utf-8")
-	h.Set("Cache-Control", "public, max-age=3600")
-	w.Write([]byte(docsInitJS))
+func docsInit(w http.ResponseWriter, r *http.Request) {
+	servirEstatico(w, "text/javascript; charset=utf-8", []byte(docsInitJS))
+}
+
+func servirEstatico(w http.ResponseWriter, tipo string, contenido []byte) {
+	w.Header().Set("Content-Type", tipo)
+	w.Header().Set("Cache-Control", "public, max-age=3600")
+	w.Write(contenido)
 }
 
 // redirigirV1 manda las rutas sin versión a /v1, para quien usaba la API

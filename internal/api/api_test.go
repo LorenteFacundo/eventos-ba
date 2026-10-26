@@ -4,11 +4,13 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"path/filepath"
 	"slices"
 	"strconv"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/LorenteFacundo/eventos-ba/internal/event"
 	"github.com/LorenteFacundo/eventos-ba/internal/store"
@@ -197,7 +199,6 @@ func TestPedidosInvalidos(t *testing.T) {
 		{"campo desconocido", pedido{metodo: "POST", ruta: "/v1/eventos", cuerpo: `{"titlo": "x"}`}, http.StatusBadRequest},
 		{"modalidad inválida", pedido{metodo: "GET", ruta: "/v1/eventos?modalidad=remoto"}, http.StatusBadRequest},
 		{"modalidad inválida al cargar", pedido{metodo: "POST", ruta: "/v1/eventos", cuerpo: `{"titulo": "x", "inicio": "2030-01-10T19:00:00-03:00", "url": "https://a.com", "modalidad": "remoto"}`}, http.StatusBadRequest},
-		{"zona ya no existe", pedido{metodo: "POST", ruta: "/v1/eventos", cuerpo: `{"titulo": "x", "zona": "CABA"}`}, http.StatusBadRequest},
 		{"q muy largo", pedido{metodo: "GET", ruta: "/v1/eventos?q=" + strings.Repeat("a", maxBusqueda+1)}, http.StatusBadRequest},
 		{"fecha mal escrita", pedido{metodo: "GET", ruta: "/v1/eventos?fecha=05/11/2026"}, http.StatusBadRequest},
 		{"mes mal escrito", pedido{metodo: "GET", ruta: "/v1/eventos?mes=noviembre"}, http.StatusBadRequest},
@@ -290,6 +291,54 @@ func TestDocsYOpenAPI(t *testing.T) {
 		t.Errorf("la CSP de /docs tiene que permitir el CDN con barra final, got %q", csp)
 	}
 	esperarEstado(t, hacer(api, pedido{metodo: "GET", ruta: "/docs/init.js"}), http.StatusOK)
+}
+
+func TestPeriodo(t *testing.T) {
+	ahora := time.Date(2030, 1, 15, 23, 0, 0, 0, event.Argentina)
+	dia := func(d int) time.Time { return time.Date(2030, 1, d, 0, 0, 0, 0, event.Argentina) }
+
+	casos := []struct {
+		query        string
+		desde, hasta time.Time
+	}{
+		{"", ahora, time.Time{}},
+		{"fecha=2030-01-20", dia(20), dia(21)},
+		{"mes=2030-01", dia(1), time.Date(2030, 2, 1, 0, 0, 0, 0, event.Argentina)},
+		{"dias=1", ahora, dia(16)}, // lo que queda de hoy, no 24 horas
+		{"dias=7", ahora, dia(22)},
+		{"desde=2030-01-20", dia(20), time.Time{}},
+		{"hasta=2030-01-20", ahora, dia(21)},
+		{"hasta=2030-01-15", ahora, dia(16)}, // hasta hoy: lo que queda del día
+		{"desde=2030-01-01&hasta=2030-01-10", dia(1), dia(11)},
+	}
+	for _, c := range casos {
+		t.Run(c.query, func(t *testing.T) {
+			q, _ := url.ParseQuery(c.query)
+			desde, hasta, err := periodo(q, ahora)
+			if err != nil {
+				t.Fatalf("periodo: %v", err)
+			}
+			if !desde.Equal(c.desde) || !hasta.Equal(c.hasta) {
+				t.Errorf("got %v..%v, want %v..%v", desde, hasta, c.desde, c.hasta)
+			}
+		})
+	}
+}
+
+func TestInfoYSalud(t *testing.T) {
+	api := nuevaAPI(t, Config{Version: "abc1234"})
+
+	info := hacer(api, pedido{metodo: "GET", ruta: "/"})
+	esperarEstado(t, info, http.StatusOK)
+	var datos map[string]string
+	if err := json.Unmarshal(info.Body.Bytes(), &datos); err != nil || datos["version"] != "abc1234" || datos["docs"] == "" {
+		t.Errorf("info = %s", info.Body.String())
+	}
+
+	// El healthcheck no pasa por el límite por IP.
+	for range 100 {
+		esperarEstado(t, hacer(api, pedido{metodo: "GET", ruta: "/healthz", ip: "203.0.113.7"}), http.StatusOK)
+	}
 }
 
 func TestRutasSinVersionRedirigen(t *testing.T) {

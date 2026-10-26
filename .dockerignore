@@ -5,3 +5,4 @@ web
 *.db-shm
 *.db-wal
 .env
+Makefile

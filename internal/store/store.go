@@ -11,6 +11,8 @@ import (
 	"strings"
 	"time"
 
+	_ "modernc.org/sqlite"
+
 	"github.com/LorenteFacundo/eventos-ba/internal/event"
 )
 
@@ -20,7 +22,11 @@ var ErrNoEncontrado = errors.New("evento no encontrado")
 // Las fechas van como texto RFC3339 en UTC, así el orden alfabético coincide
 // con el cronológico y se pueden comparar directo en SQL. termina sale de
 // Event.Termina y es lo que se usa para saber si un evento ya pasó.
-const esquema = `
+//
+// Cada entrada es una migración; PRAGMA user_version guarda cuántas se
+// aplicaron. Para cambiar el esquema se agrega una al final, nunca se edita
+// una anterior.
+var migraciones = []string{`
 CREATE TABLE IF NOT EXISTS eventos (
 	id          INTEGER PRIMARY KEY AUTOINCREMENT,
 	url         TEXT NOT NULL UNIQUE,
@@ -35,7 +41,7 @@ CREATE TABLE IF NOT EXISTS eventos (
 );
 CREATE INDEX IF NOT EXISTS eventos_inicio ON eventos(inicio);
 CREATE INDEX IF NOT EXISTS eventos_termina ON eventos(termina);
-`
+`}
 
 // Tiene que coincidir con el orden de Scan en escanear.
 const columnas = `id, url, titulo, inicio, fin, lugar, modalidad, fuente`
@@ -81,16 +87,47 @@ func Open(ruta string) (*Store, error) {
 		return nil, fmt.Errorf("abriendo la base: %w", err)
 	}
 
-	if _, err := db.Exec(esquema); err != nil {
+	if err := migrar(db); err != nil {
 		db.Close()
-		return nil, fmt.Errorf("creando tablas: %w", err)
+		return nil, fmt.Errorf("migrando la base: %w", err)
 	}
 
 	return &Store{db: db}, nil
 }
 
+func migrar(db *sql.DB) error {
+	var version int
+	if err := db.QueryRow("PRAGMA user_version").Scan(&version); err != nil {
+		return err
+	}
+	for i := version; i < len(migraciones); i++ {
+		tx, err := db.Begin()
+		if err != nil {
+			return err
+		}
+		if _, err := tx.Exec(migraciones[i]); err != nil {
+			tx.Rollback()
+			return fmt.Errorf("migración %d: %w", i+1, err)
+		}
+		// PRAGMA no acepta parámetros, pero i+1 es un entero propio.
+		if _, err := tx.Exec(fmt.Sprintf("PRAGMA user_version = %d", i+1)); err != nil {
+			tx.Rollback()
+			return err
+		}
+		if err := tx.Commit(); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 func (s *Store) Close() error {
 	return s.db.Close()
+}
+
+// Ping confirma que la base responde; lo usa el healthcheck.
+func (s *Store) Ping(ctx context.Context) error {
+	return s.db.PingContext(ctx)
 }
 
 // Guardar inserta o actualiza (por url) todos los eventos en una sola

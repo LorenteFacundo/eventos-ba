@@ -21,8 +21,10 @@ const htmlDePrueba = `<html><head>
 </head></html>`
 
 func TestParsearDevEvents(t *testing.T) {
-	eventos := parsearDevEvents([]byte(htmlDePrueba))
-
+	eventos, err := parsearDevEvents([]byte(htmlDePrueba))
+	if err != nil {
+		t.Fatalf("parsearDevEvents: %v", err)
+	}
 	if len(eventos) != 1 {
 		t.Fatalf("got %d eventos, want 1 (el online se descarta)", len(eventos))
 	}
@@ -40,5 +42,11 @@ func TestParsearDevEvents(t *testing.T) {
 	}
 	if err := e.Validar(); err != nil {
 		t.Errorf("no pasa la validación: %v", err)
+	}
+}
+
+func TestParsearDevEventsSinEventosFalla(t *testing.T) {
+	if _, err := parsearDevEvents([]byte(`<html><body>otra página</body></html>`)); err == nil {
+		t.Error("esperaba error con una página sin eventos")
 	}
 }

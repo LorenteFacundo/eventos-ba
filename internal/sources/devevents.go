@@ -3,6 +3,7 @@ package sources
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"regexp"
 	"strings"
@@ -35,26 +36,32 @@ func fetchDevEvents(ctx context.Context) ([]event.Event, error) {
 	if err != nil {
 		return nil, fmt.Errorf("descargando dev.events: %w", err)
 	}
-	return parsearDevEvents(html), nil
+	return parsearDevEvents(html)
 }
 
-func parsearDevEvents(html []byte) []event.Event {
+// parsearDevEvents falla si la página no trae ningún evento: lo más probable
+// es que haya cambiado el formato, y conviene enterarse en vez de guardar cero
+// en silencio.
+func parsearDevEvents(html []byte) ([]event.Event, error) {
 	var eventos []event.Event
+	encontrados := 0
 	for _, match := range jsonLDRegex.FindAllSubmatch(html, -1) {
 		var d devEvent
-		if err := json.Unmarshal(match[1], &d); err != nil {
+		// También hay bloques BreadcrumbList, Organization, etc.
+		if err := json.Unmarshal(match[1], &d); err != nil || d.Type != "EducationEvent" {
 			continue
 		}
-		if d.Type != "EducationEvent" {
-			continue // también hay bloques BreadcrumbList, etc.
-		}
+		encontrados++
 		// Los online de esa página son de cualquier parte del mundo, no de Buenos Aires.
 		if strings.Contains(d.AttendanceMode, "OnlineEventAttendanceMode") {
 			continue
 		}
 		eventos = append(eventos, convertirDevEvent(d))
 	}
-	return eventos
+	if encontrados == 0 {
+		return nil, errors.New("la página no trae eventos, puede haber cambiado el formato")
+	}
+	return eventos, nil
 }
 
 func convertirDevEvent(d devEvent) event.Event {

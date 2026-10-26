@@ -30,6 +30,7 @@ evento. Los online de otros países no se incluyen.
 | GET    | `/`                   | Información de la API                         |
 | GET    | `/docs`               | Documentación interactiva (Swagger UI)        |
 | GET    | `/v1/openapi.yaml`    | Especificación OpenAPI 3.1                    |
+| GET    | `/healthz`            | Estado del servicio                           |
 
 No hace falta registrarse ni usar una API key para leer.
 
@@ -48,8 +49,8 @@ Todos son opcionales y se pueden combinar, salvo los de fecha (ver abajo).
 | `mes`     | eventos de un mes                                         | `?mes=2026-11`      |
 | `desde`   | eventos desde un día                                      | `?desde=2026-11-01` |
 | `hasta`   | eventos hasta un día, inclusive                           | `?hasta=2026-11-30` |
-| `dias`    | eventos de los próximos N días (1 a 3650)                 | `?dias=7`           |
-| `fuente`  | de dónde salió el evento: `manual`, `ia`, `dev.events`    | `?fuente=manual`    |
+| `dias`    | eventos hasta el final del día N, contando hoy (1 a 3650) | `?dias=7`           |
+| `fuente`  | cómo llegó el evento a la base (ver abajo)                | `?fuente=manual`    |
 | `limite`  | cantidad máxima de resultados (1 a 500, por defecto 100)  | `?limite=10`        |
 
 **Búsqueda por texto.** No distingue mayúsculas ni tildes, y cada palabra
@@ -67,6 +68,9 @@ eventos de ahora en adelante; con `fecha`, `mes` o `desde` también se pueden
 consultar eventos pasados. Un evento entra si está ocurriendo en algún momento
 del período, aunque haya empezado antes. Si no se conoce la hora de fin, se
 toma que dura 3 horas, o el día entero si solo se conoce la fecha.
+
+**Fuente.** `manual` es un evento cargado a mano, `ia` uno encontrado con ayuda
+de IA y revisado antes de cargarlo, y `dev.events` uno traído por `eventos fetch`.
 
 ```bash
 # Eventos de IA en noviembre
@@ -157,7 +161,8 @@ curl -X POST https://eventos-ba.fly.dev/v1/eventos \
        "url": "https://ejemplo.com/meetup", "lugar": "Palermo"}'
 ```
 
-- `modalidad` es opcional; si no viene, el evento se carga como `presencial`.
+- Obligatorios: `titulo`, `inicio` y `url`. `fin`, `lugar`, `modalidad` y
+  `fuente` son opcionales; sin `modalidad` el evento se carga como `presencial`.
 - Si llega un evento con una `url` que ya existe, se actualiza en vez de duplicarse.
 - Si un evento de la lista es inválido no se guarda ninguno, y la respuesta
   detalla el problema de cada uno.
@@ -168,13 +173,14 @@ curl -X POST https://eventos-ba.fly.dev/v1/eventos \
 
 ## Correrla localmente
 
-Requiere Go 1.27.3 o más nuevo.
+Requiere Go 1.27 o más nuevo.
 
 ```bash
 go run ./cmd/eventos import eventos.json   # carga eventos desde un archivo
 go run ./cmd/eventos fetch                 # trae eventos de dev.events
 go run ./cmd/eventos list                  # lista los próximos eventos
 go run ./cmd/eventos serve                 # API en http://localhost:8080
+go run ./cmd/eventos version               # versión del binario
 ```
 
 | Variable            | Uso                                                           |
@@ -184,11 +190,21 @@ go run ./cmd/eventos serve                 # API en http://localhost:8080
 | `EVENTOS_HEADER_IP` | Header con la IP real del cliente detrás de un proxy (en Fly.io: `Fly-Client-IP`). Solo configurarlo si el proxy lo pisa siempre |
 | `PORT`              | Puerto de la API                                              |
 
-Tests:
+## Desarrollo y deploy
 
 ```bash
-go test ./...
+make test     # go vet + go test -race
+make lint     # gofmt, staticcheck y govulncheck, con versiones fijas (lo mismo que corre el CI)
+make build    # binario estático en ./eventos, con la versión de git adentro
+make docker   # imagen local
+make deploy   # fly deploy con la versión de git
 ```
+
+La instancia pública corre en [Fly.io](https://fly.io) con una sola máquina y
+la base en un volumen; la configuración está en `fly.toml` y la imagen se
+construye con el `Dockerfile`. Los datos no se actualizan solos: los eventos
+se cargan con `POST /v1/eventos` o entrando a la máquina con
+`fly ssh console -C "eventos fetch"`.
 
 ## Seguridad
 
