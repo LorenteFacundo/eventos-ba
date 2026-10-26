@@ -38,9 +38,10 @@ const docsInitJS = `window.ui = SwaggerUIBundle({
 `
 
 // La política global es default-src 'none'. La página de docs necesita cargar
-// Swagger UI del CDN y pedirle el yaml a esta misma API.
-const docsCSP = "default-src 'none'; script-src 'self' " + swaggerCDN + "; style-src 'unsafe-inline' " + swaggerCDN +
-	"; img-src data: " + swaggerCDN + "; font-src " + swaggerCDN + "; connect-src 'self'; frame-ancestors 'none'"
+// Swagger UI del CDN y pedirle el yaml a esta misma API. En CSP una fuente con
+// ruta tiene que terminar en "/" para cubrir los archivos de adentro.
+const docsCSP = "default-src 'none'; script-src 'self' " + swaggerCDN + "/; style-src 'unsafe-inline' " + swaggerCDN +
+	"/; img-src data: " + swaggerCDN + "/; font-src " + swaggerCDN + "/; connect-src 'self'; frame-ancestors 'none'"
 
 func (srv *servidor) openapi(w http.ResponseWriter, r *http.Request) {
 	h := w.Header()

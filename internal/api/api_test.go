@@ -285,8 +285,9 @@ func TestDocsYOpenAPI(t *testing.T) {
 	if got := docs.Header().Get("Content-Type"); !strings.HasPrefix(got, "text/html") {
 		t.Errorf("Content-Type = %q", got)
 	}
-	if csp := docs.Header().Get("Content-Security-Policy"); !strings.Contains(csp, "cdn.jsdelivr.net") {
-		t.Errorf("la CSP de /docs tiene que permitir el CDN, got %q", csp)
+	// Una fuente CSP con ruta solo cubre lo de adentro si termina en "/".
+	if csp := docs.Header().Get("Content-Security-Policy"); !strings.Contains(csp, swaggerCDN+"/") {
+		t.Errorf("la CSP de /docs tiene que permitir el CDN con barra final, got %q", csp)
 	}
 	esperarEstado(t, hacer(api, pedido{metodo: "GET", ruta: "/docs/init.js"}), http.StatusOK)
 }
