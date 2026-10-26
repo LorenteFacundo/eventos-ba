@@ -81,7 +81,7 @@ func (srv *servidor) info(w http.ResponseWriter, r *http.Request) {
 	cacheable(w)
 	srv.responderJSON(w, http.StatusOK, map[string]any{
 		"nombre":      "eventos-ba",
-		"descripcion": "Eventos IT en la Ciudad de Buenos Aires",
+		"descripcion": "Eventos IT en la Ciudad de Buenos Aires, presenciales y online",
 		"docs":        "https://github.com/LorenteFacundo/eventos-ba",
 		"rutas": []string{
 			"GET /eventos",

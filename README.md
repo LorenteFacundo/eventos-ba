@@ -154,6 +154,9 @@ curl -X POST https://eventos-ba.fly.dev/eventos \
 - Si un evento de la lista es inválido no se guarda ninguno, y la respuesta
   detalla el problema de cada uno.
 - Máximo 500 eventos y 1 MB por pedido.
+- Errores propios de la escritura: `401` token inválido o ausente, `403` la
+  instancia no tiene token configurado, `413` cuerpo o lista demasiado grandes,
+  `415` el cuerpo no es `application/json`.
 
 ## Correrla localmente
 

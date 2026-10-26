@@ -1,5 +1,7 @@
 app = "eventos-ba"
 primary_region = "eze"
+# El apagado espera hasta 10 s a los pedidos en curso; Fly da 5 s por defecto.
+kill_timeout = "15s"
 
 [env]
   EVENTOS_HEADER_IP = "Fly-Client-IP"

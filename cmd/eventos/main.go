@@ -1,4 +1,5 @@
-// eventos carga, lista y sirve por HTTP eventos IT de Buenos Aires.
+// eventos carga, lista y sirve por HTTP eventos IT de la Ciudad de Buenos Aires,
+// presenciales y online.
 //
 // Variables de entorno:
 //
@@ -29,7 +30,7 @@ comandos:
   fetch            trae eventos de las fuentes externas y los guarda
   list             muestra los próximos eventos
   import ARCHIVO   carga eventos desde un JSON (- lee de stdin)
-  serve [DIR]      levanta la API (por defecto en localhost:8080)
+  serve [DIRECCION] levanta la API (por defecto en localhost:8080)
 `
 
 type comando func(ctx context.Context, s *store.Store, args []string) error
