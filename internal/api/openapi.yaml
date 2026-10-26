@@ -1,0 +1,510 @@
+openapi: 3.1.0
+info:
+  title: eventos-ba
+  version: "1.0"
+  summary: Eventos IT en la Ciudad de Buenos Aires, presenciales y online
+  description: |
+    API pública y gratuita de eventos de tecnología en la Ciudad de Buenos Aires:
+    meetups, conferencias, hackatones y talleres, presenciales u online organizados
+    por comunidades de acá.
+
+    La lectura no requiere registro ni API key. La escritura (`POST` y `DELETE`)
+    está reservada a quien administra la instancia y usa un token Bearer.
+
+    Las fechas van en RFC 3339 con hora argentina (`-03:00`). Un `inicio` a las
+    `00:00` significa que solo se conoce el día.
+  contact:
+    name: Facundo Lorente
+    url: https://github.com/LorenteFacundo/eventos-ba
+servers:
+  - url: https://eventos-ba.fly.dev
+    description: Instancia pública
+  - url: http://localhost:8080
+    description: Instancia local (`eventos serve`)
+# Por defecto no hace falta autenticación; las operaciones de escritura lo pisan.
+security: []
+tags:
+  - name: eventos
+    description: Lectura pública
+  - name: carga
+    description: Escritura con token
+
+paths:
+  /:
+    get:
+      summary: Información de la API
+      description: Nombre, descripción, rutas, filtros y enlaces a la documentación.
+      operationId: info
+      responses:
+        "200":
+          description: Información de la API
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+        "429":
+          $ref: "#/components/responses/DemasiadosPedidos"
+
+  /v1/eventos:
+    get:
+      tags: [eventos]
+      summary: Listar eventos
+      description: |
+        Próximos eventos ordenados por fecha de inicio. Sin filtros de período
+        devuelve los eventos de ahora en adelante.
+
+        Un evento entra si está ocurriendo en algún momento del período, aunque
+        haya empezado antes. Si no se conoce la hora de fin se toma que dura
+        3 horas, o el día entero si solo se conoce la fecha.
+
+        `fecha`, `mes`, `dias` y `desde`/`hasta` arman el período, así que se
+        usa uno solo de ellos.
+      operationId: listarEventos
+      parameters:
+        - $ref: "#/components/parameters/q"
+        - $ref: "#/components/parameters/modalidad"
+        - $ref: "#/components/parameters/fecha"
+        - $ref: "#/components/parameters/mes"
+        - $ref: "#/components/parameters/desde"
+        - $ref: "#/components/parameters/hasta"
+        - $ref: "#/components/parameters/dias"
+        - $ref: "#/components/parameters/fuente"
+        - name: limite
+          in: query
+          description: Cantidad máxima de resultados.
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 500
+            default: 100
+          example: 10
+      responses:
+        "200":
+          description: Lista de eventos. Vacía (`[]`) si no hay ninguno.
+          headers:
+            Cache-Control:
+              $ref: "#/components/headers/Cache-Control"
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Evento"
+        "400":
+          $ref: "#/components/responses/ParametrosInvalidos"
+        "429":
+          $ref: "#/components/responses/DemasiadosPedidos"
+    post:
+      tags: [carga]
+      summary: Crear o actualizar eventos
+      description: |
+        Recibe un evento o una lista de hasta 500 eventos (1 MB como máximo).
+        Si llega un evento con una `url` que ya existe, se actualiza en vez de
+        duplicarse. Si alguno es inválido no se guarda ninguno y la respuesta
+        detalla el problema de cada uno. Se rechazan los campos desconocidos.
+      operationId: crearEventos
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              oneOf:
+                - $ref: "#/components/schemas/EventoNuevo"
+                - type: array
+                  maxItems: 500
+                  items:
+                    $ref: "#/components/schemas/EventoNuevo"
+            examples:
+              uno:
+                summary: Un evento
+                value:
+                  titulo: Meetup de Go
+                  inicio: "2026-11-05T19:00:00-03:00"
+                  fin: "2026-11-05T21:00:00-03:00"
+                  lugar: Palermo, CABA
+                  url: https://ejemplo.com/meetup
+                  modalidad: presencial
+              lista:
+                summary: Varios eventos
+                value:
+                  - titulo: Meetup de Go
+                    inicio: "2026-11-05T19:00:00-03:00"
+                    url: https://ejemplo.com/meetup
+                  - titulo: Charla online de IA
+                    inicio: "2026-11-12T18:00:00-03:00"
+                    url: https://ejemplo.com/charla
+                    modalidad: online
+                    lugar: Online
+      responses:
+        "201":
+          description: Eventos guardados, con su `id` asignado.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Evento"
+        "400":
+          description: JSON inválido, o algún evento inválido (con el detalle de cada uno).
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: "#/components/schemas/Error"
+                  - $ref: "#/components/schemas/ErrorValidacion"
+              examples:
+                validacion:
+                  value:
+                    error: eventos inválidos
+                    detalles:
+                      - 'evento #1 "Meetup de Go": la url tiene que ser http:// o https:// y tener dominio'
+        "401":
+          $ref: "#/components/responses/SinAutorizacion"
+        "403":
+          $ref: "#/components/responses/EscrituraDeshabilitada"
+        "413":
+          description: El cuerpo supera 1 MB o la lista supera los 500 eventos.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "415":
+          description: El cuerpo no es `application/json`.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "429":
+          $ref: "#/components/responses/DemasiadosPedidos"
+
+  /v1/eventos/proximo:
+    get:
+      tags: [eventos]
+      summary: El próximo evento
+      description: El primer evento que coincide con los filtros. Acepta los mismos filtros que `/v1/eventos`, salvo `limite`.
+      operationId: proximoEvento
+      parameters:
+        - $ref: "#/components/parameters/q"
+        - $ref: "#/components/parameters/modalidad"
+        - $ref: "#/components/parameters/fecha"
+        - $ref: "#/components/parameters/mes"
+        - $ref: "#/components/parameters/desde"
+        - $ref: "#/components/parameters/hasta"
+        - $ref: "#/components/parameters/dias"
+        - $ref: "#/components/parameters/fuente"
+      responses:
+        "200":
+          description: El próximo evento
+          headers:
+            Cache-Control:
+              $ref: "#/components/headers/Cache-Control"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Evento"
+        "400":
+          $ref: "#/components/responses/ParametrosInvalidos"
+        "404":
+          description: No hay eventos que coincidan.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+              example:
+                error: no hay eventos que coincidan
+        "429":
+          $ref: "#/components/responses/DemasiadosPedidos"
+
+  /v1/eventos/{id}:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        description: Identificador del evento en esta API.
+        schema:
+          type: integer
+          minimum: 1
+        example: 16
+    get:
+      tags: [eventos]
+      summary: Un evento por su ID
+      operationId: obtenerEvento
+      responses:
+        "200":
+          description: El evento
+          headers:
+            Cache-Control:
+              $ref: "#/components/headers/Cache-Control"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Evento"
+        "400":
+          $ref: "#/components/responses/ParametrosInvalidos"
+        "404":
+          $ref: "#/components/responses/NoEncontrado"
+        "429":
+          $ref: "#/components/responses/DemasiadosPedidos"
+    delete:
+      tags: [carga]
+      summary: Borrar un evento
+      operationId: borrarEvento
+      security:
+        - bearerAuth: []
+      responses:
+        "204":
+          description: Evento borrado.
+        "400":
+          $ref: "#/components/responses/ParametrosInvalidos"
+        "401":
+          $ref: "#/components/responses/SinAutorizacion"
+        "403":
+          $ref: "#/components/responses/EscrituraDeshabilitada"
+        "404":
+          $ref: "#/components/responses/NoEncontrado"
+        "429":
+          $ref: "#/components/responses/DemasiadosPedidos"
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      description: "El token configurado en `EVENTOS_TOKEN` de la instancia, como `Authorization: Bearer <token>`."
+
+  parameters:
+    q:
+      name: q
+      in: query
+      description: |
+        Palabras a buscar en el título o el lugar, hasta 100 caracteres. No
+        distingue mayúsculas ni tildes, y cada palabra tiene que coincidir con
+        el comienzo de una palabra: `ia` encuentra "IA aplicada" pero no
+        "Industria". Con varias palabras tienen que estar todas.
+      schema:
+        type: string
+        maxLength: 100
+      example: python
+    modalidad:
+      name: modalidad
+      in: query
+      description: Los híbridos aparecen tanto con `presencial` como con `online`; `hibrido` trae solo esos. `virtual` vale como `online`.
+      schema:
+        type: string
+        enum: [presencial, online, hibrido]
+      example: online
+    fecha:
+      name: fecha
+      in: query
+      description: Eventos de un día, en hora argentina.
+      schema:
+        type: string
+        format: date
+      example: "2026-11-05"
+    mes:
+      name: mes
+      in: query
+      description: Eventos de un mes, con formato `AAAA-MM`.
+      schema:
+        type: string
+        pattern: "^[0-9]{4}-[0-9]{2}$"
+      example: "2026-11"
+    desde:
+      name: desde
+      in: query
+      description: Eventos desde un día. Se puede combinar con `hasta`.
+      schema:
+        type: string
+        format: date
+      example: "2026-11-01"
+    hasta:
+      name: hasta
+      in: query
+      description: Eventos hasta un día, inclusive. Sin `desde` se toma desde hoy.
+      schema:
+        type: string
+        format: date
+      example: "2026-11-30"
+    dias:
+      name: dias
+      in: query
+      description: Eventos de los próximos N días.
+      schema:
+        type: integer
+        minimum: 1
+        maximum: 3650
+      example: 7
+    fuente:
+      name: fuente
+      in: query
+      description: De dónde salió el evento. No distingue mayúsculas.
+      schema:
+        type: string
+      examples:
+        manual:
+          value: manual
+        ia:
+          value: ia
+        devevents:
+          value: dev.events
+
+  headers:
+    Cache-Control:
+      description: Las lecturas se pueden cachear 60 segundos.
+      schema:
+        type: string
+        example: public, max-age=60
+    Retry-After:
+      description: Segundos a esperar antes de volver a intentar.
+      schema:
+        type: integer
+        example: 60
+
+  responses:
+    ParametrosInvalidos:
+      description: Algún parámetro es inválido. El mensaje dice cuál.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+          example:
+            error: "mes tiene que tener el formato AAAA-MM, por ejemplo 2026-11"
+    NoEncontrado:
+      description: El evento no existe.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+          example:
+            error: evento no encontrado
+    SinAutorizacion:
+      description: Token inválido o ausente.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+          example:
+            error: token inválido o ausente
+    EscrituraDeshabilitada:
+      description: La instancia no tiene token configurado, así que es de solo lectura.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    DemasiadosPedidos:
+      description: |
+        Se superó el límite por IP: 5 pedidos por segundo con ráfagas de hasta
+        60 para las lecturas, y 10 por minuto para las escrituras.
+      headers:
+        Retry-After:
+          $ref: "#/components/headers/Retry-After"
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+
+  schemas:
+    Evento:
+      type: object
+      description: Un evento tal como lo devuelve la API.
+      required: [id, titulo, inicio, lugar, url, modalidad, fuente]
+      properties:
+        id:
+          type: integer
+          description: Identificador del evento en esta API.
+          example: 16
+        titulo:
+          type: string
+          example: "#AdminBirras Noviembre (sysarmy)"
+        inicio:
+          type: string
+          format: date-time
+          description: RFC 3339 en hora argentina. `00:00` significa que solo se conoce el día.
+          example: "2026-11-05T19:00:00-03:00"
+        fin:
+          type: string
+          format: date-time
+          description: Opcional. No aparece si no se conoce.
+          example: "2026-11-05T22:00:00-03:00"
+        lugar:
+          type: string
+          description: Dirección o barrio. Puede estar vacío.
+          example: Basta Callejón, Palermo
+        url:
+          type: string
+          format: uri
+          description: Página oficial o de inscripción.
+          example: https://www.meetup.com/sysarmy/events/316974697/
+        modalidad:
+          type: string
+          enum: [presencial, online, hibrido]
+          example: presencial
+        fuente:
+          type: string
+          description: Cómo llegó el evento a la base.
+          example: ia
+
+    EventoNuevo:
+      type: object
+      description: Un evento para cargar. Se rechazan los campos que no estén acá.
+      required: [titulo, inicio, url]
+      additionalProperties: false
+      properties:
+        id:
+          type: integer
+          description: Se ignora; lo asigna la base.
+        titulo:
+          type: string
+          minLength: 1
+          maxLength: 200
+        inicio:
+          type: string
+          format: date-time
+          description: RFC 3339. Si solo se conoce el día, usar `00:00` en hora argentina.
+          example: "2026-11-05T19:00:00-03:00"
+        fin:
+          type: string
+          format: date-time
+          description: Opcional. No puede ser anterior a `inicio`.
+        lugar:
+          type: string
+          maxLength: 200
+          default: ""
+        url:
+          type: string
+          format: uri
+          maxLength: 2048
+          description: Tiene que ser `http://` o `https://` con dominio. Es la clave para actualizar.
+        modalidad:
+          type: string
+          enum: [presencial, online, hibrido]
+          default: presencial
+          description: También se aceptan `virtual` (= online) e `híbrido`.
+        fuente:
+          type: string
+          maxLength: 50
+          default: manual
+
+    Error:
+      type: object
+      required: [error]
+      properties:
+        error:
+          type: string
+          example: "dias tiene que ser un número entre 1 y 3650"
+
+    ErrorValidacion:
+      type: object
+      required: [error, detalles]
+      properties:
+        error:
+          type: string
+          example: eventos inválidos
+        detalles:
+          type: array
+          description: Un renglón por evento inválido, con el número de evento, el título y los problemas.
+          items:
+            type: string

@@ -59,7 +59,7 @@ const eventoJSON = `{"titulo": "Meetup de Go", "inicio": "2030-01-10T19:00:00-03
 func TestCicloCompleto(t *testing.T) {
 	api := nuevaAPI(t, Config{Token: tokenDePrueba})
 
-	rec := hacer(api, pedido{metodo: "POST", ruta: "/eventos", cuerpo: eventoJSON, token: tokenDePrueba})
+	rec := hacer(api, pedido{metodo: "POST", ruta: "/v1/eventos", cuerpo: eventoJSON, token: tokenDePrueba})
 	esperarEstado(t, rec, http.StatusCreated)
 
 	var creados []event.Event
@@ -69,12 +69,12 @@ func TestCicloCompleto(t *testing.T) {
 	if creados[0].ID == 0 || creados[0].Fuente != event.FuentePorDefecto {
 		t.Errorf("evento creado: %+v", creados[0])
 	}
-	ruta := "/eventos/" + strconv.FormatInt(creados[0].ID, 10)
+	ruta := "/v1/eventos/" + strconv.FormatInt(creados[0].ID, 10)
 
 	esperarEstado(t, hacer(api, pedido{metodo: "GET", ruta: ruta}), http.StatusOK)
-	esperarEstado(t, hacer(api, pedido{metodo: "GET", ruta: "/eventos/proximo"}), http.StatusOK)
+	esperarEstado(t, hacer(api, pedido{metodo: "GET", ruta: "/v1/eventos/proximo"}), http.StatusOK)
 
-	rec = hacer(api, pedido{metodo: "GET", ruta: "/eventos?q=go+palermo&mes=2030-01&limite=10"})
+	rec = hacer(api, pedido{metodo: "GET", ruta: "/v1/eventos?q=go+palermo&mes=2030-01&limite=10"})
 	esperarEstado(t, rec, http.StatusOK)
 	if !strings.Contains(rec.Body.String(), "Meetup de Go") {
 		t.Errorf("búsqueda: %s", rec.Body.String())
@@ -91,7 +91,7 @@ func TestFiltrosDeFecha(t *testing.T) {
 		{"titulo": "Uno", "inicio": "2030-01-10T19:00:00-03:00", "url": "https://ejemplo.com/1"},
 		{"titulo": "Dos", "inicio": "2030-01-31T23:30:00-03:00", "fin": "2030-01-31T23:59:00-03:00", "url": "https://ejemplo.com/2", "modalidad": "online"},
 		{"titulo": "Tres", "inicio": "2030-02-01T00:00:00-03:00", "url": "https://ejemplo.com/3"}]`
-	esperarEstado(t, hacer(api, pedido{metodo: "POST", ruta: "/eventos", cuerpo: cuerpo, token: tokenDePrueba}), http.StatusCreated)
+	esperarEstado(t, hacer(api, pedido{metodo: "POST", ruta: "/v1/eventos", cuerpo: cuerpo, token: tokenDePrueba}), http.StatusCreated)
 
 	casos := []struct {
 		query string
@@ -111,7 +111,7 @@ func TestFiltrosDeFecha(t *testing.T) {
 
 	for _, c := range casos {
 		t.Run(c.query, func(t *testing.T) {
-			rec := hacer(api, pedido{metodo: "GET", ruta: "/eventos?" + c.query})
+			rec := hacer(api, pedido{metodo: "GET", ruta: "/v1/eventos?" + c.query})
 			esperarEstado(t, rec, http.StatusOK)
 
 			var eventos []event.Event
@@ -132,14 +132,14 @@ func TestFiltrosDeFecha(t *testing.T) {
 func TestEscrituraRequiereToken(t *testing.T) {
 	api := nuevaAPI(t, Config{Token: tokenDePrueba})
 
-	esperarEstado(t, hacer(api, pedido{metodo: "POST", ruta: "/eventos", cuerpo: eventoJSON}), http.StatusUnauthorized)
-	esperarEstado(t, hacer(api, pedido{metodo: "POST", ruta: "/eventos", cuerpo: eventoJSON, token: "otro"}), http.StatusUnauthorized)
-	esperarEstado(t, hacer(api, pedido{metodo: "DELETE", ruta: "/eventos/1"}), http.StatusUnauthorized)
+	esperarEstado(t, hacer(api, pedido{metodo: "POST", ruta: "/v1/eventos", cuerpo: eventoJSON}), http.StatusUnauthorized)
+	esperarEstado(t, hacer(api, pedido{metodo: "POST", ruta: "/v1/eventos", cuerpo: eventoJSON, token: "otro"}), http.StatusUnauthorized)
+	esperarEstado(t, hacer(api, pedido{metodo: "DELETE", ruta: "/v1/eventos/1"}), http.StatusUnauthorized)
 }
 
 func TestSinTokenEsSoloLectura(t *testing.T) {
 	api := nuevaAPI(t, Config{})
-	esperarEstado(t, hacer(api, pedido{metodo: "POST", ruta: "/eventos", cuerpo: eventoJSON, token: "x"}), http.StatusForbidden)
+	esperarEstado(t, hacer(api, pedido{metodo: "POST", ruta: "/v1/eventos", cuerpo: eventoJSON, token: "x"}), http.StatusForbidden)
 }
 
 func TestFuerzaBrutaDelTokenSeCorta(t *testing.T) {
@@ -147,7 +147,7 @@ func TestFuerzaBrutaDelTokenSeCorta(t *testing.T) {
 
 	var ultimo int
 	for range 20 {
-		ultimo = hacer(api, pedido{metodo: "POST", ruta: "/eventos", cuerpo: eventoJSON, token: "adivinando"}).Code
+		ultimo = hacer(api, pedido{metodo: "POST", ruta: "/v1/eventos", cuerpo: eventoJSON, token: "adivinando"}).Code
 	}
 	if ultimo != http.StatusTooManyRequests {
 		t.Errorf("después de 20 intentos: estado = %d, want 429", ultimo)
@@ -159,14 +159,14 @@ func TestLimitePorIP(t *testing.T) {
 
 	var ultimo int
 	for range 100 {
-		ultimo = hacer(api, pedido{metodo: "GET", ruta: "/eventos", ip: "203.0.113.1"}).Code
+		ultimo = hacer(api, pedido{metodo: "GET", ruta: "/v1/eventos", ip: "203.0.113.1"}).Code
 	}
 	if ultimo != http.StatusTooManyRequests {
 		t.Fatalf("después de 100 pedidos: estado = %d, want 429", ultimo)
 	}
 
 	// Otra IP no se ve afectada.
-	esperarEstado(t, hacer(api, pedido{metodo: "GET", ruta: "/eventos", ip: "203.0.113.2"}), http.StatusOK)
+	esperarEstado(t, hacer(api, pedido{metodo: "GET", ruta: "/v1/eventos", ip: "203.0.113.2"}), http.StatusOK)
 }
 
 func TestHeaderIPSoloSiEstaConfigurado(t *testing.T) {
@@ -192,24 +192,24 @@ func TestPedidosInvalidos(t *testing.T) {
 		p      pedido
 		want   int
 	}{
-		{"evento inválido", pedido{metodo: "POST", ruta: "/eventos", cuerpo: `{"titulo": "x", "url": "ftp://a"}`}, http.StatusBadRequest},
-		{"JSON roto", pedido{metodo: "POST", ruta: "/eventos", cuerpo: `{"titulo": `}, http.StatusBadRequest},
-		{"campo desconocido", pedido{metodo: "POST", ruta: "/eventos", cuerpo: `{"titlo": "x"}`}, http.StatusBadRequest},
-		{"modalidad inválida", pedido{metodo: "GET", ruta: "/eventos?modalidad=remoto"}, http.StatusBadRequest},
-		{"modalidad inválida al cargar", pedido{metodo: "POST", ruta: "/eventos", cuerpo: `{"titulo": "x", "inicio": "2030-01-10T19:00:00-03:00", "url": "https://a.com", "modalidad": "remoto"}`}, http.StatusBadRequest},
-		{"zona ya no existe", pedido{metodo: "POST", ruta: "/eventos", cuerpo: `{"titulo": "x", "zona": "CABA"}`}, http.StatusBadRequest},
-		{"q muy largo", pedido{metodo: "GET", ruta: "/eventos?q=" + strings.Repeat("a", maxBusqueda+1)}, http.StatusBadRequest},
-		{"fecha mal escrita", pedido{metodo: "GET", ruta: "/eventos?fecha=05/11/2026"}, http.StatusBadRequest},
-		{"mes mal escrito", pedido{metodo: "GET", ruta: "/eventos?mes=noviembre"}, http.StatusBadRequest},
-		{"hasta antes de desde", pedido{metodo: "GET", ruta: "/eventos?desde=2030-02-01&hasta=2030-01-01"}, http.StatusBadRequest},
-		{"fecha y mes juntos", pedido{metodo: "GET", ruta: "/eventos?fecha=2030-01-10&mes=2030-01"}, http.StatusBadRequest},
-		{"filtro inválido en proximo", pedido{metodo: "GET", ruta: "/eventos/proximo?mes=x"}, http.StatusBadRequest},
-		{"dias no numérico", pedido{metodo: "GET", ruta: "/eventos?dias=abc"}, http.StatusBadRequest},
-		{"dias fuera de rango", pedido{metodo: "GET", ruta: "/eventos?dias=36500"}, http.StatusBadRequest},
-		{"limite excesivo", pedido{metodo: "GET", ruta: "/eventos?limite=100000"}, http.StatusBadRequest},
-		{"id no numérico", pedido{metodo: "GET", ruta: "/eventos/abc"}, http.StatusBadRequest},
-		{"id negativo", pedido{metodo: "GET", ruta: "/eventos/-1"}, http.StatusBadRequest},
-		{"método no permitido", pedido{metodo: "PUT", ruta: "/eventos"}, http.StatusMethodNotAllowed},
+		{"evento inválido", pedido{metodo: "POST", ruta: "/v1/eventos", cuerpo: `{"titulo": "x", "url": "ftp://a"}`}, http.StatusBadRequest},
+		{"JSON roto", pedido{metodo: "POST", ruta: "/v1/eventos", cuerpo: `{"titulo": `}, http.StatusBadRequest},
+		{"campo desconocido", pedido{metodo: "POST", ruta: "/v1/eventos", cuerpo: `{"titlo": "x"}`}, http.StatusBadRequest},
+		{"modalidad inválida", pedido{metodo: "GET", ruta: "/v1/eventos?modalidad=remoto"}, http.StatusBadRequest},
+		{"modalidad inválida al cargar", pedido{metodo: "POST", ruta: "/v1/eventos", cuerpo: `{"titulo": "x", "inicio": "2030-01-10T19:00:00-03:00", "url": "https://a.com", "modalidad": "remoto"}`}, http.StatusBadRequest},
+		{"zona ya no existe", pedido{metodo: "POST", ruta: "/v1/eventos", cuerpo: `{"titulo": "x", "zona": "CABA"}`}, http.StatusBadRequest},
+		{"q muy largo", pedido{metodo: "GET", ruta: "/v1/eventos?q=" + strings.Repeat("a", maxBusqueda+1)}, http.StatusBadRequest},
+		{"fecha mal escrita", pedido{metodo: "GET", ruta: "/v1/eventos?fecha=05/11/2026"}, http.StatusBadRequest},
+		{"mes mal escrito", pedido{metodo: "GET", ruta: "/v1/eventos?mes=noviembre"}, http.StatusBadRequest},
+		{"hasta antes de desde", pedido{metodo: "GET", ruta: "/v1/eventos?desde=2030-02-01&hasta=2030-01-01"}, http.StatusBadRequest},
+		{"fecha y mes juntos", pedido{metodo: "GET", ruta: "/v1/eventos?fecha=2030-01-10&mes=2030-01"}, http.StatusBadRequest},
+		{"filtro inválido en proximo", pedido{metodo: "GET", ruta: "/v1/eventos/proximo?mes=x"}, http.StatusBadRequest},
+		{"dias no numérico", pedido{metodo: "GET", ruta: "/v1/eventos?dias=abc"}, http.StatusBadRequest},
+		{"dias fuera de rango", pedido{metodo: "GET", ruta: "/v1/eventos?dias=36500"}, http.StatusBadRequest},
+		{"limite excesivo", pedido{metodo: "GET", ruta: "/v1/eventos?limite=100000"}, http.StatusBadRequest},
+		{"id no numérico", pedido{metodo: "GET", ruta: "/v1/eventos/abc"}, http.StatusBadRequest},
+		{"id negativo", pedido{metodo: "GET", ruta: "/v1/eventos/-1"}, http.StatusBadRequest},
+		{"método no permitido", pedido{metodo: "PUT", ruta: "/v1/eventos"}, http.StatusMethodNotAllowed},
 	}
 
 	for _, c := range casos {
@@ -223,7 +223,7 @@ func TestPedidosInvalidos(t *testing.T) {
 func TestPostSinContentTypeJSON(t *testing.T) {
 	api := nuevaAPI(t, Config{Token: tokenDePrueba})
 
-	req := httptest.NewRequest("POST", "/eventos", strings.NewReader(eventoJSON))
+	req := httptest.NewRequest("POST", "/v1/eventos", strings.NewReader(eventoJSON))
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	req.Header.Set("Authorization", "Bearer "+tokenDePrueba)
 	rec := httptest.NewRecorder()
@@ -235,13 +235,13 @@ func TestPostSinContentTypeJSON(t *testing.T) {
 func TestPostDemasiadoGrande(t *testing.T) {
 	api := nuevaAPI(t, Config{Token: tokenDePrueba})
 	cuerpo := `{"titulo": "` + strings.Repeat("a", maxCuerpo) + `"}`
-	esperarEstado(t, hacer(api, pedido{metodo: "POST", ruta: "/eventos", cuerpo: cuerpo, token: tokenDePrueba}), http.StatusRequestEntityTooLarge)
+	esperarEstado(t, hacer(api, pedido{metodo: "POST", ruta: "/v1/eventos", cuerpo: cuerpo, token: tokenDePrueba}), http.StatusRequestEntityTooLarge)
 }
 
 func TestCabeceras(t *testing.T) {
 	api := nuevaAPI(t, Config{Token: tokenDePrueba})
 
-	get := hacer(api, pedido{metodo: "GET", ruta: "/eventos"})
+	get := hacer(api, pedido{metodo: "GET", ruta: "/v1/eventos"})
 	esperarEstado(t, get, http.StatusOK)
 	if got := strings.TrimSpace(get.Body.String()); got != "[]" {
 		t.Errorf("lista vacía: got %s, want []", got)
@@ -259,11 +259,50 @@ func TestCabeceras(t *testing.T) {
 		}
 	}
 
-	post := hacer(api, pedido{metodo: "POST", ruta: "/eventos", cuerpo: eventoJSON, token: tokenDePrueba})
+	post := hacer(api, pedido{metodo: "POST", ruta: "/v1/eventos", cuerpo: eventoJSON, token: tokenDePrueba})
 	if got := post.Header().Get("Access-Control-Allow-Origin"); got != "" {
 		t.Errorf("POST no debería habilitar CORS, got %q", got)
 	}
 	if got := post.Header().Get("Cache-Control"); got != "no-store" {
 		t.Errorf("POST Cache-Control = %q, want no-store", got)
+	}
+}
+
+func TestDocsYOpenAPI(t *testing.T) {
+	api := nuevaAPI(t, Config{})
+
+	yaml := hacer(api, pedido{metodo: "GET", ruta: "/v1/openapi.yaml"})
+	esperarEstado(t, yaml, http.StatusOK)
+	if !strings.HasPrefix(yaml.Body.String(), "openapi: 3.1") {
+		t.Errorf("openapi.yaml no empieza con la versión: %.40q", yaml.Body.String())
+	}
+	if got := yaml.Header().Get("Access-Control-Allow-Origin"); got != "*" {
+		t.Errorf("el yaml tiene que poder leerse desde cualquier origen, got %q", got)
+	}
+
+	docs := hacer(api, pedido{metodo: "GET", ruta: "/docs"})
+	esperarEstado(t, docs, http.StatusOK)
+	if got := docs.Header().Get("Content-Type"); !strings.HasPrefix(got, "text/html") {
+		t.Errorf("Content-Type = %q", got)
+	}
+	if csp := docs.Header().Get("Content-Security-Policy"); !strings.Contains(csp, "cdn.jsdelivr.net") {
+		t.Errorf("la CSP de /docs tiene que permitir el CDN, got %q", csp)
+	}
+	esperarEstado(t, hacer(api, pedido{metodo: "GET", ruta: "/docs/init.js"}), http.StatusOK)
+}
+
+func TestRutasSinVersionRedirigen(t *testing.T) {
+	api := nuevaAPI(t, Config{})
+	for ruta, want := range map[string]string{
+		"/eventos":              "/v1/eventos",
+		"/eventos?dias=7":       "/v1/eventos?dias=7",
+		"/eventos/proximo?q=go": "/v1/eventos/proximo?q=go",
+		"/eventos/12":           "/v1/eventos/12",
+	} {
+		rec := hacer(api, pedido{metodo: "GET", ruta: ruta})
+		esperarEstado(t, rec, http.StatusPermanentRedirect)
+		if got := rec.Header().Get("Location"); got != want {
+			t.Errorf("%s -> Location = %q, want %q", ruta, got, want)
+		}
 	}
 }

@@ -64,11 +64,16 @@ func Handler(s *store.Store, cfg Config) http.Handler {
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /{$}", srv.info)
-	mux.HandleFunc("GET /eventos", srv.listarEventos)
-	mux.HandleFunc("GET /eventos/proximo", srv.proximoEvento)
-	mux.HandleFunc("GET /eventos/{id}", srv.obtenerEvento)
-	mux.HandleFunc("POST /eventos", srv.conToken(srv.crearEventos))
-	mux.HandleFunc("DELETE /eventos/{id}", srv.conToken(srv.borrarEvento))
+	mux.HandleFunc("GET /docs", srv.docs)
+	mux.HandleFunc("GET /docs/init.js", srv.docsInit)
+	mux.HandleFunc("GET /v1/openapi.yaml", srv.openapi)
+	mux.HandleFunc("GET /v1/eventos", srv.listarEventos)
+	mux.HandleFunc("GET /v1/eventos/proximo", srv.proximoEvento)
+	mux.HandleFunc("GET /v1/eventos/{id}", srv.obtenerEvento)
+	mux.HandleFunc("POST /v1/eventos", srv.conToken(srv.crearEventos))
+	mux.HandleFunc("DELETE /v1/eventos/{id}", srv.conToken(srv.borrarEvento))
+	mux.HandleFunc("GET /eventos", redirigirV1)
+	mux.HandleFunc("GET /eventos/{resto...}", redirigirV1)
 
 	var h http.Handler = mux
 	h = srv.limitar(srv.limLecturas, h)
@@ -82,11 +87,13 @@ func (srv *servidor) info(w http.ResponseWriter, r *http.Request) {
 	srv.responderJSON(w, http.StatusOK, map[string]any{
 		"nombre":      "eventos-ba",
 		"descripcion": "Eventos IT en la Ciudad de Buenos Aires, presenciales y online",
-		"docs":        "https://github.com/LorenteFacundo/eventos-ba",
+		"docs":        "https://eventos-ba.fly.dev/docs",
+		"openapi":     "https://eventos-ba.fly.dev/v1/openapi.yaml",
+		"codigo":      "https://github.com/LorenteFacundo/eventos-ba",
 		"rutas": []string{
-			"GET /eventos",
-			"GET /eventos/proximo",
-			"GET /eventos/{id}",
+			"GET /v1/eventos",
+			"GET /v1/eventos/proximo",
+			"GET /v1/eventos/{id}",
 		},
 		"filtros": map[string]string{
 			"q":         "palabras del título o el lugar",

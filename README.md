@@ -4,8 +4,11 @@ API pública y gratuita de eventos IT en la Ciudad de Buenos Aires: meetups,
 conferencias, hackatones y talleres, presenciales y online.
 
 ```bash
-curl https://eventos-ba.fly.dev/eventos
+curl https://eventos-ba.fly.dev/v1/eventos
 ```
+
+Documentación interactiva: **https://eventos-ba.fly.dev/docs**
+(especificación OpenAPI en [`/v1/openapi.yaml`](https://eventos-ba.fly.dev/v1/openapi.yaml)).
 
 > La URL de arriba es la del deploy en Fly.io. Si corrés tu propia instancia,
 > reemplazala por la tuya.
@@ -19,16 +22,21 @@ evento. Los online de otros países no se incluyen.
 
 ## Endpoints
 
-| Método | Ruta               | Descripción                                   |
-|--------|--------------------|-----------------------------------------------|
-| GET    | `/eventos`         | Próximos eventos, ordenados por fecha         |
-| GET    | `/eventos/proximo` | El próximo evento (acepta los mismos filtros) |
-| GET    | `/eventos/{id}`    | Un evento por su ID                           |
-| GET    | `/`                | Información de la API                         |
+| Método | Ruta                  | Descripción                                   |
+|--------|-----------------------|-----------------------------------------------|
+| GET    | `/v1/eventos`         | Próximos eventos, ordenados por fecha         |
+| GET    | `/v1/eventos/proximo` | El próximo evento (acepta los mismos filtros) |
+| GET    | `/v1/eventos/{id}`    | Un evento por su ID                           |
+| GET    | `/`                   | Información de la API                         |
+| GET    | `/docs`               | Documentación interactiva (Swagger UI)        |
+| GET    | `/v1/openapi.yaml`    | Especificación OpenAPI 3.1                    |
 
 No hace falta registrarse ni usar una API key para leer.
 
-### Filtros de `/eventos`
+Las rutas llevan versión (`/v1`) para poder cambiar la API más adelante sin
+romper a quien ya la usa. Las rutas viejas sin versión redirigen a `/v1`.
+
+### Filtros de `/v1/eventos`
 
 Todos son opcionales y se pueden combinar, salvo los de fecha (ver abajo).
 
@@ -62,16 +70,16 @@ toma que dura 3 horas, o el día entero si solo se conoce la fecha.
 
 ```bash
 # Eventos de IA en noviembre
-curl "https://eventos-ba.fly.dev/eventos?q=ia&mes=2026-11"
+curl "https://eventos-ba.fly.dev/v1/eventos?q=ia&mes=2026-11"
 
 # Eventos online del próximo mes
-curl "https://eventos-ba.fly.dev/eventos?modalidad=online&dias=30"
+curl "https://eventos-ba.fly.dev/v1/eventos?modalidad=online&dias=30"
 
 # Lo que hay esta semana
-curl "https://eventos-ba.fly.dev/eventos?dias=7"
+curl "https://eventos-ba.fly.dev/v1/eventos?dias=7"
 
 # La próxima hackatón
-curl "https://eventos-ba.fly.dev/eventos/proximo?q=hackaton"
+curl "https://eventos-ba.fly.dev/v1/eventos/proximo?q=hackaton"
 ```
 
 ### Formato de un evento
@@ -127,7 +135,7 @@ CORS está habilitado para las lecturas, así que se puede consumir directo
 desde el navegador:
 
 ```js
-const res = await fetch("https://eventos-ba.fly.dev/eventos?dias=30");
+const res = await fetch("https://eventos-ba.fly.dev/v1/eventos?dias=30");
 const eventos = await res.json();
 ```
 
@@ -138,11 +146,11 @@ token configurado en `EVENTOS_TOKEN`.
 
 | Método | Ruta            | Descripción                                   |
 |--------|-----------------|-----------------------------------------------|
-| POST   | `/eventos`      | Crea o actualiza un evento o una lista        |
-| DELETE | `/eventos/{id}` | Borra un evento                               |
+| POST   | `/v1/eventos`      | Crea o actualiza un evento o una lista        |
+| DELETE | `/v1/eventos/{id}` | Borra un evento                               |
 
 ```bash
-curl -X POST https://eventos-ba.fly.dev/eventos \
+curl -X POST https://eventos-ba.fly.dev/v1/eventos \
   -H "Authorization: Bearer $EVENTOS_TOKEN" \
   -H "Content-Type: application/json" \
   -d '{"titulo": "Meetup de Go", "inicio": "2026-11-05T19:00:00-03:00",
