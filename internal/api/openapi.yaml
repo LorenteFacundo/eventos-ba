@@ -16,6 +16,9 @@ info:
   contact:
     name: Facundo Lorente
     url: https://github.com/LorenteFacundo/eventos-ba
+  license:
+    name: MIT
+    identifier: MIT
 servers:
   - url: https://eventos-ba.fly.dev
     description: Instancia pública

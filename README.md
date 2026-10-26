@@ -204,3 +204,8 @@ go test ./...
 
 Si encontrás una vulnerabilidad, reportala de forma privada desde la pestaña
 **Security → Report a vulnerability** del repositorio, no en un issue público.
+
+## Licencia
+
+El código está bajo la [licencia MIT](LICENSE). Los eventos son información
+pública y se pueden usar libremente.
