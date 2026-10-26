@@ -31,10 +31,13 @@ tags:
     description: Lectura pública
   - name: carga
     description: Escritura con token
+  - name: info
+    description: Sobre la API
 
 paths:
   /:
     get:
+      tags: [info]
       summary: Información de la API
       description: Nombre, descripción, rutas, filtros y enlaces a la documentación.
       operationId: info
